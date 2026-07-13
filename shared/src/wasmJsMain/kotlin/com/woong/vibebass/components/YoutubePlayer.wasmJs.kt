@@ -6,8 +6,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
 import kotlin.js.ExperimentalWasmJsInterop
 
 @OptIn(ExperimentalWasmJsInterop::class)
@@ -28,30 +26,10 @@ actual fun YoutubePlayer(
         setupYoutubePlayerJs(videoId)
     }
 
-    // Compose Box 영역의 브라우저 윈도우 상 실제 좌표 및 가로/세로 픽셀을 측정하여 유튜브 플레이어 위치 밀착 동기화
+    // 오버레이 유튜브 컨테이너의 크기/위치는 CSS calc 매핑으로 이중 렌더링 오차를 완전히 격리 차단
     Box(
-        modifier = modifier
-            .background(Color.Black)
-            .onGloballyPositioned { coordinates ->
-                val position = coordinates.positionInWindow()
-                val size = coordinates.size
-                updateYoutubePositionJs(
-                    left = position.x.toDouble(),
-                    top = position.y.toDouble(),
-                    width = size.width.toDouble(),
-                    height = size.height.toDouble()
-                )
-            }
+        modifier = modifier.background(Color.Black)
     )
-}
-
-@OptIn(ExperimentalWasmJsInterop::class)
-private fun updateYoutubePositionJs(left: Double, top: Double, width: Double, height: Double) {
-    js("""
-        if (typeof window.updateYoutubePosition === 'function') {
-            window.updateYoutubePosition(left, top, width, height);
-        }
-    """)
 }
 
 @OptIn(ExperimentalWasmJsInterop::class)
