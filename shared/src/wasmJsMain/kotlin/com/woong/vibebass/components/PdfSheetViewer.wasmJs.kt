@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 actual fun PdfSheetViewer(
     pdfSource: String,
     scrollState: LazyListState,
-    onPdfFileSelected: (String) -> Unit,
+    onPdfFileSelected: (String, String) -> Unit,
     modifier: Modifier
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -35,9 +35,9 @@ actual fun PdfSheetViewer(
             }
         }
 
-        // 파일 선택 완료 콜백 브릿지 등록
-        bindPdfFileSelectedCallback { fileName ->
-            onPdfFileSelected(fileName)
+        // 파일 선택 완료 콜백 브릿지 등록 (파일명과 Object URL을 수신)
+        bindPdfFileSelectedCallback { fileName, objectUrl ->
+            onPdfFileSelected(fileName, objectUrl)
         }
     }
 
@@ -94,10 +94,10 @@ private fun bindPdfScrollCallback(onScroll: (Double) -> Unit) {
 }
 
 @OptIn(ExperimentalWasmJsInterop::class)
-private fun bindPdfFileSelectedCallback(onSelected: (String) -> Unit) {
+private fun bindPdfFileSelectedCallback(onSelected: (String, String) -> Unit) {
     js("""
-        window.onPdfFileSelected = function(fileName) {
-            onSelected(fileName);
+        window.onPdfFileSelected = function(fileName, objectUrl) {
+            onSelected(fileName, objectUrl);
         };
     """)
 }

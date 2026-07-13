@@ -8,7 +8,7 @@ import androidx.compose.ui.Modifier
 actual fun PdfSheetViewer(
     pdfSource: String,
     scrollState: LazyListState,
-    onPdfFileSelected: (String) -> Unit,
+    onPdfFileSelected: (String, String) -> Unit,
     modifier: Modifier
 ) {
     // Android 용 PDF 뷰어 뼈대

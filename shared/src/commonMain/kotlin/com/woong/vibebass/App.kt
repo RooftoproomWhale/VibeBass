@@ -105,11 +105,35 @@ fun App() {
                 ) {
                     Text(
                         text = "VibeBass 싱크 매니저",
+                        modifier = Modifier.statusBarsPadding(),
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
 
-                    // PDF 로컬 업로드 제어 카드 추가
+                    // [순서 변경 1] 유튜브 플레이어 영역을 맨 위로 올려 absolute 포지션(top: 100px)과 오버랩시킴
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp)
+                            .background(Color.Black)
+                    ) {
+                        YoutubePlayer(
+                            videoId = videoId,
+                            currentTime = currentTime,
+                            isPlaying = isPlaying,
+                            onTimeUpdate = { currentTime = it },
+                            onStateChange = { isPlaying = it },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    
+                    val formattedTime = ((currentTime * 10).toInt() / 10f)
+                    Text(
+                        text = "현재 재생 시간: $formattedTime 초",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+
+                    // [순서 변경 2] 로컬 업로드 카드를 유튜브 플레이어 아래로 내려 가려짐 방지
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -142,29 +166,6 @@ fun App() {
                             }
                         }
                     }
-                    
-                    // 유튜브 플레이어 영역
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(240.dp)
-                            .background(Color.Black)
-                    ) {
-                        YoutubePlayer(
-                            videoId = videoId,
-                            currentTime = currentTime,
-                            isPlaying = isPlaying,
-                            onTimeUpdate = { currentTime = it },
-                            onStateChange = { isPlaying = it },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                    
-                    val formattedTime = ((currentTime * 10).toInt() / 10f)
-                    Text(
-                        text = "현재 재생 시간: $formattedTime 초",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
                     
                     // 싱크 매니저 카드 설정
                     Card(
@@ -285,10 +286,9 @@ fun App() {
                     PdfSheetViewer(
                         pdfSource = pdfPath,
                         scrollState = scrollState,
-                        onPdfFileSelected = { 
-                            uploadedFileName = it
-                            // 파일 선택 이벤트 감지 시 로딩 상태 트리거용 가상 주소 설정
-                            pdfPath = "local://" + it
+                        onPdfFileSelected = { fileName, objectUrl -> 
+                            uploadedFileName = fileName
+                            pdfPath = objectUrl
                         },
                         modifier = Modifier.fillMaxSize()
                     )

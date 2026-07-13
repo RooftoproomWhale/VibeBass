@@ -8,7 +8,7 @@ import androidx.compose.ui.Modifier
 expect fun PdfSheetViewer(
     pdfSource: String,
     scrollState: LazyListState,
-    onPdfFileSelected: (String) -> Unit,
+    onPdfFileSelected: (String, String) -> Unit, // (파일명, ObjectURL) 형태로 수신
     modifier: Modifier = Modifier
 )
 

@@ -7,8 +7,17 @@
     <link type="text/css" rel="stylesheet" href="styles.css">
     <!-- pdf.js CDN 라이브러리 추가 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        /* Compose Canvas가 브라우저 전체를 채우는 과정에서 Z-Index 충돌 방지 */
+        canvas {
+            z-index: 1 !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+        }
+    </style>
 </head>
-<body style="text-align: center; align-content: center; margin: 0; padding: 0;">
+<body style="text-align: center; align-content: center; margin: 0; padding: 0; background-color: #fff;">
     <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 50 50" role="presentation">
         <circle cx="25" cy="25" r="20" stroke="#ccc" stroke-width="4" fill="none"/>
         <circle cx="25" cy="25" r="20" stroke="#333" stroke-width="4" fill="none" stroke-linecap="round"
@@ -18,16 +27,7 @@
         </circle>
     </svg>
 
-    <!-- 유튜브 플레이어 오버레이 컨테이너 -->
-    <div id="youtube-player-container" style="position: absolute; left: 24px; top: 100px; width: 37%; height: 240px; z-index: 100; display: none; background: #000; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">
-        <div id="yt-player" style="width: 100%; height: 100%;"></div>
-    </div>
-
-    <!-- PDF 뷰어 오버레이 컨테이너 -->
-    <div id="pdf-viewer-container" style="position: absolute; right: 24px; top: 100px; width: 55%; height: calc(100vh - 140px); z-index: 100; display: none; background: #eee; overflow-y: scroll; border-radius: 8px; border: 1px solid #ccc; box-shadow: 0 4px 10px rgba(0,0,0,0.15);"></div>
-
-    <!-- 숨겨진 파일 업로드 입력 폼 -->
-    <input type="file" id="pdf-upload-input" accept="application/pdf" style="display: none;">
+    <!-- HTML 파일 내의 정적 컨테이너 제거: Kotlin ComposeViewport 로딩 시 초기화 유실 방지를 위해 JS 동적 생성으로 변경 -->
 
     <!-- YouTube IFrame API 및 Kotlin Bridge Script -->
     <script>
@@ -39,9 +39,31 @@
         var player;
         window.initYoutubePlayer = function(videoId) {
             var container = document.getElementById('youtube-player-container');
-            if (container) {
-                container.style.display = 'block';
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'youtube-player-container';
+                container.style.position = 'absolute';
+                // 초기 위치는 가려두거나 보이지 않게 처리 (Kotlin이 실시간 좌표를 세팅해줄 것임)
+                container.style.left = '-9999px';
+                container.style.top = '-9999px';
+                container.style.width = '0px';
+                container.style.height = '0px';
+                container.style.zIndex = '999999';
+                container.style.background = '#000';
+                container.style.borderRadius = '8px';
+                container.style.overflow = 'hidden';
+                container.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
+                container.style.pointerEvents = 'auto';
+                
+                var ytPlayerDiv = document.createElement('div');
+                ytPlayerDiv.id = 'yt-player';
+                ytPlayerDiv.style.width = '100%';
+                ytPlayerDiv.style.height = '100%';
+                container.appendChild(ytPlayerDiv);
+                
+                document.body.appendChild(container);
             }
+            container.style.display = 'block';
             
             if (player && typeof player.loadVideoById === 'function') {
                 player.loadVideoById(videoId);
@@ -64,6 +86,17 @@
             }, 100);
         };
 
+        // Kotlin에서 Compose Box 홀더의 실제 브라우저 상 좌표를 얻어 1:1 위치/크기 밀착 동기화
+        window.updateYoutubePosition = function(left, top, width, height) {
+            var container = document.getElementById('youtube-player-container');
+            if (container) {
+                container.style.left = left + 'px';
+                container.style.top = top + 'px';
+                container.style.width = width + 'px';
+                container.style.height = height + 'px';
+            }
+        };
+
         function onPlayerReady(event) {
             setInterval(function() {
                 if (player && typeof player.getCurrentTime === 'function') {
@@ -84,21 +117,50 @@
 
         // ------------------ PDF.js 및 스크롤 Bridge 연동 ------------------
         var pdfDoc = null;
-        var pdfContainer = document.getElementById('pdf-viewer-container');
+        var pdfContainer = null;
 
         window.initPdfViewer = function(pdfUrl) {
             pdfContainer = document.getElementById('pdf-viewer-container');
-            if (pdfContainer) {
-                pdfContainer.style.display = 'block';
-                pdfContainer.innerHTML = '<div style="padding: 20px; text-align: center;">악보 로딩 중...</div>';
+            if (!pdfContainer) {
+                pdfContainer = document.createElement('div');
+                pdfContainer.id = 'pdf-viewer-container';
+                pdfContainer.style.position = 'absolute';
+                pdfContainer.style.right = '24px';
+                pdfContainer.style.top = '100px';
+                pdfContainer.style.width = '55%';
+                pdfContainer.style.height = 'calc(100vh - 140px)';
+                pdfContainer.style.zIndex = '999999';
+                pdfContainer.style.background = '#eee';
+                pdfContainer.style.overflowY = 'scroll';
+                pdfContainer.style.borderRadius = '8px';
+                pdfContainer.style.border = '1px solid #ccc';
+                pdfContainer.style.boxShadow = '0 4px 10px rgba(0,0,0,0.15)';
+                pdfContainer.style.pointerEvents = 'auto';
+
+                pdfContainer.addEventListener('scroll', function() {
+                    if (typeof window.onPdfScroll === 'function') {
+                        window.onPdfScroll(pdfContainer.scrollTop);
+                    }
+                });
+                
+                document.body.appendChild(pdfContainer);
             }
+            
+            pdfContainer.style.display = 'block';
+            pdfContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #333; font-weight: bold;">악보 로딩 중...</div>';
+
+            window.adjustOverlayLayers();
 
             var checkPdfLib = setInterval(function() {
                 if (typeof pdfjsLib !== 'undefined') {
                     clearInterval(checkPdfLib);
                     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
                     
-                    pdfjsLib.getDocument(pdfUrl).promise.then(function(pdfDoc_) {
+                    pdfjsLib.getDocument({
+                        url: pdfUrl,
+                        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+                        cMapPacked: true
+                    }).promise.then(function(pdfDoc_) {
                         pdfDoc = pdfDoc_;
                         if (pdfContainer) pdfContainer.innerHTML = '';
                         renderAllPages();
@@ -155,43 +217,54 @@
             }
         };
 
-        // 스크롤 이벤트 수집
-        var bindScroll = setInterval(function() {
-            pdfContainer = document.getElementById('pdf-viewer-container');
-            if (pdfContainer) {
-                clearInterval(bindScroll);
-                pdfContainer.addEventListener('scroll', function() {
-                    if (typeof window.onPdfScroll === 'function') {
-                        window.onPdfScroll(pdfContainer.scrollTop);
-                    }
-                });
-            }
-        }, 100);
-
-        // ------------------ PDF 업로드 트리거 및 파일선택 Bridge ------------------
+        // ------------------ PDF 업로드 동적 임시 생성 방식 ------------------
         window.triggerPdfUpload = function() {
-            var fileInput = document.getElementById('pdf-upload-input');
-            if (fileInput) {
-                fileInput.click();
-            }
+            var tempInput = document.createElement('input');
+            tempInput.type = 'file';
+            tempInput.accept = 'application/pdf';
+            tempInput.style.display = 'none';
+
+            tempInput.addEventListener('change', function(event) {
+                var file = event.target.files[0];
+                if (file && file.type === 'application/pdf') {
+                    var objectUrl = URL.createObjectURL(file);
+                    
+                    if (typeof window.onPdfFileSelected === 'function') {
+                        window.onPdfFileSelected(file.name, objectUrl);
+                    }
+                }
+                document.body.removeChild(tempInput);
+            });
+
+            document.body.appendChild(tempInput);
+            tempInput.click();
         };
 
-        var bindFileInput = setInterval(function() {
-            var fileInput = document.getElementById('pdf-upload-input');
-            if (fileInput) {
-                clearInterval(bindFileInput);
-                fileInput.addEventListener('change', function(event) {
-                    var file = event.target.files[0];
-                    if (file && file.type === 'application/pdf') {
-                        var objectUrl = URL.createObjectURL(file);
-                        if (typeof window.onPdfFileSelected === 'function') {
-                            window.onPdfFileSelected(file.name);
-                        }
-                        window.initPdfViewer(objectUrl);
-                    }
-                });
+        // Compose Canvas 로드 완료 후 오버레이 레이어 정렬 브릿지 (Canvas 뒤로 묻힘 방지)
+        window.adjustOverlayLayers = function() {
+            var ytContainer = document.getElementById('youtube-player-container');
+            var pdfContainer = document.getElementById('pdf-viewer-container');
+            
+            var canvases = document.getElementsByTagName('canvas');
+            for (var i = 0; i < canvases.length; i++) {
+                if (pdfContainer && canvases[i].parentNode === pdfContainer) {
+                    continue; // 악보용 캔버스는 제외
+                }
+                canvases[i].style.zIndex = '1';
+                canvases[i].style.position = 'absolute';
+                canvases[i].style.left = '0';
+                canvases[i].style.top = '0';
             }
-        }, 100);
+
+            if (ytContainer) {
+                document.body.appendChild(ytContainer);
+                ytContainer.style.zIndex = '999999';
+            }
+            if (pdfContainer) {
+                document.body.appendChild(pdfContainer);
+                pdfContainer.style.zIndex = '999999';
+            }
+        };
     </script>
 
     <script type="application/javascript" src="webApp.js"></script>

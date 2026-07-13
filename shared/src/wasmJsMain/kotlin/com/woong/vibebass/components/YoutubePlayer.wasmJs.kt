@@ -2,12 +2,12 @@ package com.woong.vibebass.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import kotlin.js.ExperimentalWasmJsInterop
 
 @OptIn(ExperimentalWasmJsInterop::class)
@@ -21,8 +21,6 @@ actual fun YoutubePlayer(
     modifier: Modifier
 ) {
     LaunchedEffect(videoId) {
-        // window 전역 객체에 Kotlin 이벤트를 바인딩해둡니다.
-        // JS Bridge Script가 실행될 때 Kotlin 단으로 현재 시간과 재생 상태를 전송할 수 있습니다.
         bindYoutubeBridgeCallbacks(
             onTimeUpdate = { time -> onTimeUpdate(time.toFloat()) },
             onStateChange = { playing -> onStateChange(playing) }
@@ -30,12 +28,30 @@ actual fun YoutubePlayer(
         setupYoutubePlayerJs(videoId)
     }
 
+    // Compose Box 영역의 브라우저 윈도우 상 실제 좌표 및 가로/세로 픽셀을 측정하여 유튜브 플레이어 위치 밀착 동기화
     Box(
-        modifier = modifier.background(Color.Black),
-        contentAlignment = Alignment.Center
-    ) {
-        Text("YouTube 플레이어 영역 (DOM 연동 중...)", color = Color.White)
-    }
+        modifier = modifier
+            .background(Color.Black)
+            .onGloballyPositioned { coordinates ->
+                val position = coordinates.positionInWindow()
+                val size = coordinates.size
+                updateYoutubePositionJs(
+                    left = position.x.toDouble(),
+                    top = position.y.toDouble(),
+                    width = size.width.toDouble(),
+                    height = size.height.toDouble()
+                )
+            }
+    )
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun updateYoutubePositionJs(left: Double, top: Double, width: Double, height: Double) {
+    js("""
+        if (typeof window.updateYoutubePosition === 'function') {
+            window.updateYoutubePosition(left, top, width, height);
+        }
+    """)
 }
 
 @OptIn(ExperimentalWasmJsInterop::class)
