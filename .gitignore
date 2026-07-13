@@ -1,19 +1,74 @@
-*.iml
-.kotlin
+# Gradle
 .gradle
-**/build/
-xcuserdata
-!src/**/build/
+/build
+/*/build
+.configuration-cache
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/gradle.xml
+.idea/assetWizardSettings.xml
+.idea/dictionaries
+.idea/libraries
+
+# Android Studio / Android
 local.properties
-.idea
+.navigation/
+captures/
+.externalNativeBuild/
+.cxx/
+output.json
+*.apk
+*.aar
+*.ap_
+
+# Apple / iOS
 .DS_Store
-captures
-.externalNativeBuild
-.cxx
-*.xcodeproj/*
+*.swp
+*.lock
+profile
+xcuserdata/
+derivedData/
+*.moved-aside
+DerivedData/
+.xcworkspace/
+!default.xcworkspace
+*.xccheckout
+*.xcscmblueprint
+*.xcuserstate
+*.orig
+*.rej
+*~
+build/
+*~.nib
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+!default.mode1v3
+!default.mode2v3
+!default.perspectivev3
+xcshareddata/
 !*.xcodeproj/project.pbxproj
 !*.xcodeproj/xcshareddata/
 !*.xcodeproj/project.xcworkspace/
 !*.xcworkspace/contents.xcworkspacedata
-**/xcshareddata/WorkspaceSettings.xcsettings
+
+# Kotlin / JS & WasmJs
 node_modules/
+package-lock.json
+yarn.lock
+.kotlin/
+.web/
+kotlin-js-store/
+
+# Log Files
+*.log
+
+# Project specific
+sample.pdf

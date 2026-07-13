@@ -15,6 +15,66 @@
                               repeatCount="indefinite"/>
         </circle>
     </svg>
+
+    <!-- 유튜브 플레이어 오버레이 컨테이너 (Compose Canvas 좌측 영역 상단에 띄움) -->
+    <div id="youtube-player-container" style="position: absolute; left: 24px; top: 100px; width: 37%; height: 240px; z-index: 100; display: none; background: #000; border-radius: 8px; overflow: hidden;">
+        <div id="yt-player" style="width: 100%; height: 100%;"></div>
+    </div>
+
+    <!-- YouTube IFrame API 및 Kotlin Bridge Script -->
+    <script>
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        var player;
+        window.initYoutubePlayer = function(videoId) {
+            var container = document.getElementById('youtube-player-container');
+            if (container) {
+                container.style.display = 'block';
+            }
+            
+            if (player && typeof player.loadVideoById === 'function') {
+                player.loadVideoById(videoId);
+                return;
+            }
+
+            var checkAPI = setInterval(function() {
+                if (typeof YT !== 'undefined' && YT.Player) {
+                    clearInterval(checkAPI);
+                    player = new YT.Player('yt-player', {
+                        height: '100%',
+                        width: '100%',
+                        videoId: videoId,
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange
+                        }
+                    });
+                }
+            }, 100);
+        };
+
+        function onPlayerReady(event) {
+            setInterval(function() {
+                if (player && typeof player.getCurrentTime === 'function') {
+                    var currentTime = player.getCurrentTime();
+                    if (typeof window.onYoutubeTimeUpdate === 'function') {
+                        window.onYoutubeTimeUpdate(currentTime);
+                    }
+                }
+            }, 100);
+        }
+
+        function onPlayerStateChange(event) {
+            var isPlaying = (event.data == YT.PlayerState.PLAYING);
+            if (typeof window.onYoutubeStateChange === 'function') {
+                window.onYoutubeStateChange(isPlaying);
+            }
+        }
+    </script>
+
     <script type="application/javascript" src="webApp.js"></script>
 </body>
 </html>
