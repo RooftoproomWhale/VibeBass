@@ -73,6 +73,11 @@ actual object SyncDataManager {
             onFailure = onFailure
         )
     }
+
+    @OptIn(ExperimentalWasmJsInterop::class)
+    actual fun scrollToPdfPixel(pixel: Double) {
+        scrollToPdfPixelJs(pixel)
+    }
 }
 
 // Kotlin/WasmJs 제약: js() 블록을 사용하는 함수는 반드시 클래스/Object 내부가 아닌 파일 최상단(Top-level) 함수로 선언해야 함
@@ -139,4 +144,9 @@ private fun loadSongsJs(
             onFailure(err.message || '네트워크 로드 실패');
         });
     """)
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun scrollToPdfPixelJs(pixel: Double) {
+    js("window.scrollToPdfPixel(pixel)")
 }

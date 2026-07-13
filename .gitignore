@@ -72,3 +72,18 @@ kotlin-js-store/
 
 # Project specific
 sample.pdf
+
+# Local Database & Secrets
+.idea/dataSources/
+.idea/dataSources.local.xml
+.idea/dataSources.xml
+*.db
+.env
+.env.local
+
+# Web packaging safety (prevent committing copied static assets)
+backend/src/main/resources/static/
+
+# OS X System Files
+**/.DS_Store
+

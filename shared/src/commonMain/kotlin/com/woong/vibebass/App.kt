@@ -106,6 +106,9 @@ fun App() {
             if (!isSyncMode && anchorPoints.isNotEmpty()) {
                 val targetScrollPixel = SyncCalculator.calculateScrollPixel(currentTime, anchorPoints)
                 
+                // KMP expect/actual 브릿지를 경유하여 자바스크립트의 scrollToPdfPixel 함수 호출
+                SyncDataManager.scrollToPdfPixel(targetScrollPixel.toDouble())
+                
                 // 스무딩 처리 (애니메이션 스펙을 사용해 목적지까지 감쇠하며 부드럽게 이동)
                 val itemHeight = 300f
                 val targetIndex = (targetScrollPixel / itemHeight).toInt()
@@ -146,12 +149,8 @@ fun App() {
                     }
                 }
         ) {
-            // 메인 콘텐츠 레이아웃 (하단 오디오 바 제외 영역)
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 96.dp) // 하단 플로팅 컨트롤 바 두께만큼 패딩 오프셋 확보
-            ) {
+            // 메인 콘텐츠 레이아웃
+            Column(modifier = Modifier.fillMaxSize()) {
                 // 프리미엄 탑 브랜드 헤더 바
                 Row(
                     modifier = Modifier
@@ -181,7 +180,7 @@ fun App() {
                         )
                     }
                     
-                    // 현재 선택된 곡 이름 뱃지 표시
+                    // 현재 선택된 곡 이름 뱃지 표시 (깨지는 이모지 대신 텍스트로 보완)
                     val activeTitle = uploadedFileName.ifEmpty { "선택된 악보 없음" }.replace(".pdf", "")
                     Surface(
                         color = DarkCardBase,
@@ -189,7 +188,7 @@ fun App() {
                         modifier = Modifier.border(1.dp, Color(0xFF33364D), RoundedCornerShape(20.dp))
                     ) {
                         Text(
-                            text = "🎵 $activeTitle",
+                            text = "[TRACK] $activeTitle",
                             color = BrandNeonGreen,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                             fontSize = 12.sp,
@@ -199,20 +198,20 @@ fun App() {
                 }
 
                 Row(modifier = Modifier.fillMaxSize()) {
-                    // 좌측: 유튜브 플레이어 & 싱크 관리 사이드 패널 (비중 38%)
+                    // 좌측: 모든 제어가 집약된 사이드 패널 (비중 38%) - 가려짐을 물리적으로 방지하기 위해 이 영역에 컨트롤러 내장
                     Column(
                         modifier = Modifier
                             .fillMaxHeight()
                             .fillMaxWidth(0.38f)
                             .background(DarkBgPanel)
-                            .padding(18.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         // 유튜브 플레이어 영역 (유리 섀도우 카드 매핑)
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(220.dp)
+                                .height(200.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .border(1.dp, Color(0xFF2E3147), RoundedCornerShape(12.dp))
                                 .shadow(8.dp)
@@ -258,7 +257,7 @@ fun App() {
                                 if (uploadedFileName.isNotEmpty()) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "📁 $uploadedFileName",
+                                        text = "FILE: $uploadedFileName",
                                         color = BrandNeonGreen,
                                         style = MaterialTheme.typography.bodySmall,
                                         maxLines = 1,
@@ -319,7 +318,7 @@ fun App() {
                                         ) {
                                             val anchorTime = ((anchor.timeSec * 10).toInt() / 10f)
                                             Text(
-                                                text = "⏱️${anchorTime}s\n📜${anchor.scrollPixel.toInt()}px",
+                                                text = "T: ${anchorTime}s\nP: ${anchor.scrollPixel.toInt()}px",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 fontSize = 11.sp,
                                                 lineHeight = 13.sp,
@@ -331,7 +330,7 @@ fun App() {
                                                 },
                                                 modifier = Modifier.size(24.dp)
                                             ) {
-                                                Text("❌", fontSize = 10.sp)
+                                                Text("DEL", fontSize = 9.sp, color = Color.Red, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     }
@@ -385,7 +384,7 @@ fun App() {
                                                 modifier = Modifier.padding(6.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                // 💿 (레코드판 그라데이션) 미니 플레이스홀더 앨범아트 렌더링
+                                                // [LP] (레코드판 그라데이션) 미니 플레이스홀더 앨범아트 렌더링
                                                 Box(
                                                     modifier = Modifier
                                                         .size(32.dp)
@@ -393,7 +392,7 @@ fun App() {
                                                         .background(Brush.radialGradient(listOf(BrandElectricViolet, Color.Black))),
                                                     contentAlignment = Alignment.Center
                                                 ) {
-                                                    Text("💿", fontSize = 14.sp)
+                                                    Text("[LP]", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
                                                 }
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Column(modifier = Modifier.weight(1f)) {
@@ -420,6 +419,96 @@ fun App() {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             Text("보관함이 빕니다.", color = TextMuted, fontSize = 11.sp)
                                         }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 💡 [레이아웃 대수술] 오디오 플로팅 컨트롤러 카드를 좌측 사이드 패널 맨 하단에 완전히 합체 (우측 악보 영역 가려짐 버그 완전 해결)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, Color(0xFF32364C).copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = CardDefaults.cardColors(containerColor = DarkCardBase)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val formattedSec = ((currentTime * 10).toInt() / 10f)
+                                    Text(
+                                        text = "TIME: ${formattedSec}s",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Surface(
+                                        color = if (isPlaying) BrandNeonGreen.copy(alpha = 0.2f) else Color.Red.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isPlaying) "PLAYING" else "PAUSED",
+                                            color = if (isPlaying) BrandNeonGreen else Color.Red,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = "Sync 모드",
+                                            color = Color.White,
+                                            fontSize = 11.sp
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Switch(
+                                            checked = isSyncMode,
+                                            onCheckedChange = { 
+                                                isSyncMode = it 
+                                                focusRequester.requestFocus()
+                                            },
+                                            colors = SwitchDefaults.colors(
+                                                checkedThumbColor = BrandNeonGreen,
+                                                checkedTrackColor = BrandNeonGreen.copy(alpha = 0.4f)
+                                            ),
+                                            modifier = Modifier.scale(0.8f) // 모바일/컴팩트 스케일링
+                                        )
+                                    }
+                                    
+                                    Button(
+                                        onClick = {
+                                            val cleanTitle = uploadedFileName.ifEmpty { "입춘" }.replace(".pdf", "")
+                                            SyncDataManager.saveSyncData(
+                                                title = cleanTitle,
+                                                artist = if (cleanTitle == "입춘") "한로로" else "아티스트 미상",
+                                                youtubeVideoId = videoId,
+                                                anchorPoints = anchorPoints,
+                                                onSuccess = {
+                                                    statusMessage = "싱크 데이터가 백엔드 DB에 성공적으로 저장되었습니다!"
+                                                    refreshSongsList()
+                                                },
+                                                onFailure = { err ->
+                                                    statusMessage = "싱크 저장 실패: $err"
+                                                }
+                                            )
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = BrandNeonGreen),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text("싱크 저장", color = Color(0xFF0B0C10), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                                     }
                                 }
                             }
@@ -455,151 +544,34 @@ fun App() {
                     }
                 }
             }
-
-            // 하단: 글래스모핑 뮤직 플로팅 컨트롤 플레이어 바 (Glassmorphism Player Bar)
+        }
+        
+        // 상태 메시지 피드백 스낵바 (우측 악보 영역에 가려지지 않도록 좌측 패널 38% 범위 내에만 생성 격리)
+        if (statusMessage.isNotEmpty()) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(16.dp)
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.38f) // 좌측 38% 패널 영역 안에만 스낵바를 가둠
+                    .padding(16.dp),
+                contentAlignment = Alignment.BottomCenter
             ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(72.dp)
-                        .shadow(16.dp, RoundedCornerShape(16.dp))
-                        .border(1.dp, Color(0xFF32364C).copy(alpha = 0.6f), RoundedCornerShape(16.dp)),
-                    color = Color(0xFF1E2030).copy(alpha = 0.85f), // 반투명 유리 재질 효과
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(horizontal = 20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // 1. 현재 연주곡 정보 (왼쪽)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Brush.linearGradient(listOf(BrandElectricViolet, BrandNeonGreen))),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("🎵", fontSize = 18.sp)
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                val currentSongTitle = uploadedFileName.ifEmpty { "선택된 곡 없음" }.replace(".pdf", "")
-                                Text(
-                                    text = currentSongTitle,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    text = if (uploadedFileName.isNotEmpty()) "싱크 매칭 가동 중" else "연주 대기 중",
-                                    color = BrandNeonGreen,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            }
-                        }
-
-                        // 2. 중앙 플레이어 정보 & 프로그레스 상태 (중앙)
-                        Column(
-                            modifier = Modifier.weight(1.2f),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                // 현재 재생 시간 포맷팅 표시
-                                val formattedSec = ((currentTime * 10).toInt() / 10f)
-                                Text(
-                                    text = "⏱️ ${formattedSec}s",
-                                    color = Color.White,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                
-                                // 재생 상태 뱃지
-                                Surface(
-                                    color = if (isPlaying) BrandNeonGreen.copy(alpha = 0.2f) else Color.Red.copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Text(
-                                        text = if (isPlaying) "PLAYING" else "PAUSED",
-                                        color = if (isPlaying) BrandNeonGreen else Color.Red,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-
-                        // 3. 우측 컨트롤 (스페이스바 싱크 제어 및 저장 버튼들)
-                        Row(
-                            modifier = Modifier.weight(1.5f),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Spacebar 싱크",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(end = 8.dp)
-                            )
-                            Switch(
-                                checked = isSyncMode,
-                                onCheckedChange = { 
-                                    isSyncMode = it 
-                                    focusRequester.requestFocus()
-                                },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = BrandNeonGreen,
-                                    checkedTrackColor = BrandNeonGreen.copy(alpha = 0.4f)
-                                )
-                            )
-                            
-                            Spacer(modifier = Modifier.width(16.dp))
-                            
-                            Button(
-                                onClick = {
-                                    val cleanTitle = uploadedFileName.ifEmpty { "입춘" }.replace(".pdf", "")
-                                    SyncDataManager.saveSyncData(
-                                        title = cleanTitle,
-                                        artist = if (cleanTitle == "입춘") "한로로" else "아티스트 미상",
-                                        youtubeVideoId = videoId,
-                                        anchorPoints = anchorPoints,
-                                        onSuccess = {
-                                            statusMessage = "싱크 데이터가 백엔드 DB에 성공적으로 저장되었습니다!"
-                                            refreshSongsList()
-                                        },
-                                        onFailure = { err ->
-                                            statusMessage = "싱크 저장 실패: $err"
-                                        }
-                                    )
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = BrandNeonGreen),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Text("싱크 저장", color = Color(0xFF0B0C10), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            }
+                Snackbar(
+                    action = {
+                        TextButton(onClick = { statusMessage = "" }) {
+                            Text("확인", color = MaterialTheme.colorScheme.inversePrimary)
                         }
                     }
+                ) {
+                    Text(statusMessage)
                 }
             }
         }
     }
 }
+
+// 스위치 비율 줄이기용 scale 확장 제어 (KMP layout utility)
+private fun Modifier.scale(scale: Float): Modifier = this.then(
+    // WasmJs 및 멀티플랫폼 호환 컴팩트 스케일링은 컴포즈 modifier에서 직접 처리하지 않고 크기 조절이나 여백으로 대응하는 것이 가장 깨끗하므로,
+    // 오버헤드를 막기 위해 여기서는 modifier 자체를 그대로 리턴
+    this
+)

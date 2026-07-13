@@ -14,4 +14,6 @@ expect object SyncDataManager {
         onSuccess: (List<SongData>) -> Unit,
         onFailure: (String) -> Unit
     )
+
+    fun scrollToPdfPixel(pixel: Double)
 }
