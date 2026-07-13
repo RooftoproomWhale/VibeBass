@@ -10,5 +10,6 @@ expect fun YoutubePlayer(
     isPlaying: Boolean,
     onTimeUpdate: (Float) -> Unit,
     onStateChange: (Boolean) -> Unit,
+    onVideoIdFound: (String) -> Unit, // 유튜브 영상 자동 검색 시 videoId 콜백 연동
     modifier: Modifier = Modifier
 )

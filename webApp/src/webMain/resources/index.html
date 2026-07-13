@@ -41,7 +41,6 @@
                 container = document.createElement('div');
                 container.id = 'youtube-player-container';
                 container.style.position = 'absolute';
-                // Kotlin 내부의 40% Column 레이아웃에 1:1로 매핑되는 절대반응형 CSS 좌표 지정
                 container.style.left = '16px';
                 container.style.top = '64px';
                 container.style.width = 'calc(40% - 32px)';
@@ -84,9 +83,8 @@
             }, 100);
         };
 
-        // Kotlin 리컴포지션 좌표 충돌 방지를 위해 JS 단에서 CSS calc 레이아웃으로 통합 처리하여 불필요해진 포지션 갱신 API 제거
         window.updateYoutubePosition = function(left, top, width, height) {
-            // No-op: CSS calc 스타일 시트가 실시간 레이아웃 추적을 완전히 대행함
+            // CSS 절대반응형 매핑으로 통합 처리
         };
 
         function onPlayerReady(event) {
@@ -156,6 +154,9 @@
                         pdfDoc = pdfDoc_;
                         if (pdfContainer) pdfContainer.innerHTML = '';
                         renderAllPages();
+                        
+                        // [추가] PDF 1페이지 텍스트 추출 및 유튜브 자동 검색 시작
+                        pdfDoc.getPage(1).then(extractMetadataAndSearchYoutube);
                     }).catch(function(error) {
                         console.error('PDF 로드 실패:', error);
                         if (pdfContainer) {
@@ -165,6 +166,75 @@
                 }
             }, 100);
         };
+
+        // PDF 1페이지 텍스트 기반 메타데이터 추출 및 유튜브 백엔드 검색 연동
+        function extractMetadataAndSearchYoutube(page) {
+            page.getTextContent().then(function(textContent) {
+                var items = textContent.items;
+                var allText = items.map(function(item) { return item.str; }).join(' ');
+                
+                // 1. 노래/아티스트 추출 시도 (예: "한로로 노래", "한로로 작사" 등)
+                var artist = "";
+                var artistMatch = allText.match(/([가-힣a-zA-Z0-9\s]+)\s+(노래|작사|작곡)/);
+                if (artistMatch) {
+                    artist = artistMatch[1].trim();
+                } else {
+                    // 폴백: 대표 한글 고유명사 키워드 매칭 시도
+                    var matches = allText.match(/[가-힣]{3}/g);
+                    if (matches && matches.length > 0) {
+                        artist = matches[0]; // 단순 매칭
+                    }
+                }
+                
+                // 2. 제목 추출 시도 (가장 글씨 크기가 큰 텍스트 탐색)
+                var title = "";
+                var maxFontSize = 0;
+                for (var i = 0; i < items.length; i++) {
+                    var item = items[i];
+                    var fontSize = Math.abs(item.transform[0]);
+                    if (fontSize > maxFontSize && item.str.trim().length > 1) {
+                        // 광고 사이트 도메인 텍스트는 필터링
+                        if (item.str.indexOf('akbobada') === -1) {
+                            maxFontSize = fontSize;
+                            title = item.str.trim();
+                        }
+                    }
+                }
+                
+                // 추출 결과 조율
+                var query = "";
+                if (title) {
+                    query = (artist && artist !== title ? artist + " " : "") + title;
+                }
+                
+                if (query.trim().length > 0) {
+                    console.log("자동 추출 검색 키워드:", query);
+                    searchYoutubeFromBackend(query);
+                }
+            });
+        }
+
+        // 백엔드 유튜브 자동 검색 API 호출
+        function searchYoutubeFromBackend(query) {
+            fetch('http://localhost:8081/api/youtube/search?query=' + encodeURIComponent(query))
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('API Response Error');
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (data && data.videoId) {
+                        console.log("유튜브 비디오 검색 성공 Video ID:", data.videoId);
+                        if (typeof window.onYoutubeVideoIdFound === 'function') {
+                            window.onYoutubeVideoIdFound(data.videoId);
+                        }
+                    }
+                })
+                .catch(function(err) {
+                    console.error("유튜브 자동 검색 연동 오류:", err);
+                });
+        }
 
         function renderAllPages() {
             if (!pdfDoc) return;

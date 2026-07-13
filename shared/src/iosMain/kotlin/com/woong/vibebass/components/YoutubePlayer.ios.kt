@@ -10,6 +10,7 @@ actual fun YoutubePlayer(
     isPlaying: Boolean,
     onTimeUpdate: (Float) -> Unit,
     onStateChange: (Boolean) -> Unit,
+    onVideoIdFound: (String) -> Unit,
     modifier: Modifier
 ) {
     // iOS 용 유튜브 플레이어 뼈대

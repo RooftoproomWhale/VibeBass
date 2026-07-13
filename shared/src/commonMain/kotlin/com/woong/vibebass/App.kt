@@ -19,6 +19,7 @@ import com.woong.vibebass.components.YoutubePlayer
 import com.woong.vibebass.components.triggerPdfUpload
 import com.woong.vibebass.sync.AnchorPoint
 import com.woong.vibebass.sync.SyncCalculator
+import com.woong.vibebass.sync.SyncDataManager
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,6 +32,9 @@ fun App() {
         
         var currentTime by remember { mutableFloatStateOf(0f) }
         var isPlaying by remember { mutableStateOf(false) }
+        
+        // 싱크 성공/실패 알림 메시지 상태 추가
+        var statusMessage by remember { mutableStateOf("") }
         
         // 앵커 포인트 리스트 (초기 데이터)
         var anchorPoints by remember {
@@ -110,7 +114,7 @@ fun App() {
                         color = MaterialTheme.colorScheme.primary
                     )
 
-                    // [순서 변경 1] 유튜브 플레이어 영역을 맨 위로 올려 absolute 포지션(top: 100px)과 오버랩시킴
+                    // [순서 변경 1] 유튜브 플레이어 영역을 맨 위로 올려 absolute 포지션(top: 64px)과 오버랩시킴
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -123,6 +127,7 @@ fun App() {
                             isPlaying = isPlaying,
                             onTimeUpdate = { currentTime = it },
                             onStateChange = { isPlaying = it },
+                            onVideoIdFound = { videoId = it }, // [추가] PDF 자동 파싱 검색 비디오 ID 바인딩
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -130,6 +135,7 @@ fun App() {
                     val formattedTime = ((currentTime * 10).toInt() / 10f)
                     Text(
                         text = "현재 재생 시간: $formattedTime 초",
+                        modifier = Modifier.statusBarsPadding(),
                         style = MaterialTheme.typography.bodyLarge
                     )
 
@@ -267,7 +273,20 @@ fun App() {
                         
                         Button(
                             onClick = {
-                                println("Saved JSONB: ${anchorPoints.map { "{\"time_sec\": ${it.timeSec}, \"scroll_pixel\": ${it.scrollPixel}}" }}")
+                                val cleanTitle = uploadedFileName.ifEmpty { "입춘" }.replace(".pdf", "")
+                                // [추가] SyncDataManager 연동을 통해 수집 데이터를 백엔드 API DB로 영구 저장
+                                SyncDataManager.saveSyncData(
+                                    title = cleanTitle,
+                                    artist = if (cleanTitle == "입춘") "한로로" else "아티스트 미상",
+                                    youtubeVideoId = videoId,
+                                    anchorPoints = anchorPoints,
+                                    onSuccess = {
+                                        statusMessage = "싱크 데이터가 백엔드 DB에 성공적으로 저장되었습니다!"
+                                    },
+                                    onFailure = { err ->
+                                        statusMessage = "싱크 저장 실패: $err"
+                                    }
+                                )
                             },
                             modifier = Modifier.weight(1f)
                         ) {
@@ -292,6 +311,26 @@ fun App() {
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+            }
+        }
+        
+        // [추가] 상태 메시지 피드백을 화면 최하단에 스낵바 카드로 가시화
+        if (statusMessage.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Snackbar(
+                    action = {
+                        TextButton(onClick = { statusMessage = "" }) {
+                            Text("확인", color = MaterialTheme.colorScheme.inversePrimary)
+                        }
+                    }
+                ) {
+                    Text(statusMessage)
                 }
             }
         }

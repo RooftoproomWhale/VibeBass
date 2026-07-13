@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: backend
+  
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/vibebass}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+server:
+  port: 8081
+
+# YouTube Data API v3 연동 설정
+youtube:
+  api-key: ${YOUTUBE_API_KEY:AIzaSyCZbcPtGX_PS9poA0d4n9FCvBSwBrNAR1c}
+  search-url: https://www.googleapis.com/youtube/v3/search

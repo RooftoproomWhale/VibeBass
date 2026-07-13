@@ -16,12 +16,14 @@ actual fun YoutubePlayer(
     isPlaying: Boolean,
     onTimeUpdate: (Float) -> Unit,
     onStateChange: (Boolean) -> Unit,
+    onVideoIdFound: (String) -> Unit,
     modifier: Modifier
 ) {
     LaunchedEffect(videoId) {
         bindYoutubeBridgeCallbacks(
             onTimeUpdate = { time -> onTimeUpdate(time.toFloat()) },
-            onStateChange = { playing -> onStateChange(playing) }
+            onStateChange = { playing -> onStateChange(playing) },
+            onVideoIdFound = { foundId -> onVideoIdFound(foundId) }
         )
         setupYoutubePlayerJs(videoId)
     }
@@ -35,7 +37,8 @@ actual fun YoutubePlayer(
 @OptIn(ExperimentalWasmJsInterop::class)
 private fun bindYoutubeBridgeCallbacks(
     onTimeUpdate: (Double) -> Unit,
-    onStateChange: (Boolean) -> Unit
+    onStateChange: (Boolean) -> Unit,
+    onVideoIdFound: (String) -> Unit
 ) {
     js("""
         window.onYoutubeTimeUpdate = function(time) {
@@ -43,6 +46,9 @@ private fun bindYoutubeBridgeCallbacks(
         };
         window.onYoutubeStateChange = function(isPlaying) {
             onStateChange(isPlaying);
+        };
+        window.onYoutubeVideoIdFound = function(foundId) {
+            onVideoIdFound(foundId);
         };
     """)
 }
