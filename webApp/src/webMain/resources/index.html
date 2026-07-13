@@ -153,9 +153,25 @@
                     }).promise.then(function(pdfDoc_) {
                         pdfDoc = pdfDoc_;
                         if (pdfContainer) pdfContainer.innerHTML = '';
+                        
+                        // [플레이헤드] 실시간 연주 가이드 재생선 엘리먼트 동적 동기화 생성
+                        var playhead = document.createElement('div');
+                        playhead.id = 'playhead-line';
+                        playhead.style.position = 'absolute';
+                        playhead.style.left = '5%';
+                        playhead.style.width = '90%';
+                        playhead.style.height = '4px';
+                        playhead.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
+                        playhead.style.boxShadow = '0 0 6px rgba(255, 0, 0, 0.8)';
+                        playhead.style.zIndex = '99999';
+                        playhead.style.pointerEvents = 'none';
+                        playhead.style.display = 'none';
+                        playhead.style.transition = 'top 0.15s ease-out'; // 매끄러운 위치 동기화 트랜지션
+                        pdfContainer.appendChild(playhead);
+
                         renderAllPages();
                         
-                        // [추가] PDF 1페이지 텍스트 추출 및 유튜브 자동 검색 시작
+                        // PDF 1페이지 텍스트 추출 및 유튜브 자동 검색 시작
                         pdfDoc.getPage(1).then(extractMetadataAndSearchYoutube);
                     }).catch(function(error) {
                         console.error('PDF 로드 실패:', error);
@@ -269,14 +285,22 @@
             });
         }
 
-        // 스크롤 이동 연동
+        // 스크롤 이동 연동 및 [플레이헤드 빨간 가이드선 이동 동기화]
         window.scrollToPdfPixel = function(pixel) {
             pdfContainer = document.getElementById('pdf-viewer-container');
             if (pdfContainer) {
+                // 악보 컨테이너 스크롤
                 pdfContainer.scrollTo({
                     top: pixel,
                     behavior: 'smooth'
                 });
+
+                // 플레이헤드 재생 가이드선 위치 오버레이 동기화 이동
+                var playhead = document.getElementById('playhead-line');
+                if (playhead) {
+                    playhead.style.display = 'block';
+                    playhead.style.top = pixel + 'px';
+                }
             }
         };
 
