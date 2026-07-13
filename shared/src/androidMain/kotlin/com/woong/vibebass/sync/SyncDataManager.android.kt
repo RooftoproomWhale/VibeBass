@@ -11,4 +11,11 @@ actual object SyncDataManager {
     ) {
         // Android용 저장 구현 뼈대
     }
+
+    actual fun loadSongs(
+        onSuccess: (List<SongData>) -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        // Android용 로드 구현 뼈대
+    }
 }

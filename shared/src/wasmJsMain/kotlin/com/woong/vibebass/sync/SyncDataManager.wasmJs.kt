@@ -38,6 +38,41 @@ actual object SyncDataManager {
             onFailure = onFailure
         )
     }
+
+    @OptIn(ExperimentalWasmJsInterop::class)
+    actual fun loadSongs(
+        onSuccess: (List<SongData>) -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        val songList = mutableListOf<SongData>()
+        
+        loadSongsJs(
+            onSongItem = { id, title, artist, videoId, anchorsStr ->
+                val anchors = if (anchorsStr.isEmpty()) {
+                    emptyList()
+                } else {
+                    anchorsStr.split(",").map { anchorStr ->
+                        val parts = anchorStr.split(":")
+                        AnchorPoint(parts[0].toFloat(), parts[1].toFloat())
+                    }
+                }
+                
+                songList.add(
+                    SongData(
+                        id = id.toLong(),
+                        title = title,
+                        artist = artist.ifEmpty { null },
+                        youtubeVideoId = videoId,
+                        anchorPoints = anchors
+                    )
+                )
+            },
+            onComplete = {
+                onSuccess(songList)
+            },
+            onFailure = onFailure
+        )
+    }
 }
 
 // Kotlin/WasmJs 제약: js() 블록을 사용하는 함수는 반드시 클래스/Object 내부가 아닌 파일 최상단(Top-level) 함수로 선언해야 함
@@ -66,6 +101,42 @@ private fun saveSyncDataJs(
         })
         .catch(function(err) {
             onFailure(err.message || '네트워크 연결 실패');
+        });
+    """)
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun loadSongsJs(
+    onSongItem: (Double, String, String, String, String) -> Unit, // WasmJs 브릿지 호환을 위해 id값은 Double로 바인딩
+    onComplete: () -> Unit,
+    onFailure: (String) -> Unit
+) {
+    js("""
+        fetch('http://localhost:8082/api/songs')
+        .then(function(response) {
+            if (!response.ok) throw new Error('서버 목록 로드 실패');
+            return response.json();
+        })
+        .then(function(songs) {
+            songs.forEach(function(song) {
+                var anchorsStr = "";
+                if (song.anchorPoints && song.anchorPoints.length > 0) {
+                    anchorsStr = song.anchorPoints.map(function(a) {
+                        return a.timeSec + ":" + a.scrollPixel;
+                      }).join(",");
+                }
+                onSongItem(
+                    song.id,
+                    song.title,
+                    song.artist || "",
+                    song.youtubeVideoId,
+                    anchorsStr
+                );
+            });
+            onComplete();
+        })
+        .catch(function(err) {
+            onFailure(err.message || '네트워크 로드 실패');
         });
     """)
 }

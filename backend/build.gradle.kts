@@ -41,6 +41,7 @@ dependencies {
     }
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.2.1") // 코틀린 스타일 모킹 지원
     testImplementation("io.projectreactor:reactor-test")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher") // Gradle 9.x 테스트 기동 호환용 추가
 }
 
 // KotlinCompile 태스크는 jvm 호환 17로 기본 매핑되므로 별도 옵션 제거

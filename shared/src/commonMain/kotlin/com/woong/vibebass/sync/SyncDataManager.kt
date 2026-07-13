@@ -9,4 +9,9 @@ expect object SyncDataManager {
         onSuccess: () -> Unit,
         onFailure: (String) -> Unit
     )
+
+    fun loadSongs(
+        onSuccess: (List<SongData>) -> Unit,
+        onFailure: (String) -> Unit
+    )
 }

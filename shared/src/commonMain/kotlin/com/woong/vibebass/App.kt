@@ -13,11 +13,13 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.woong.vibebass.components.PdfSheetViewer
 import com.woong.vibebass.components.YoutubePlayer
 import com.woong.vibebass.components.triggerPdfUpload
 import com.woong.vibebass.sync.AnchorPoint
+import com.woong.vibebass.sync.SongData
 import com.woong.vibebass.sync.SyncCalculator
 import com.woong.vibebass.sync.SyncDataManager
 import kotlinx.coroutines.launch
@@ -26,15 +28,18 @@ import kotlinx.coroutines.launch
 @Composable
 fun App() {
     MaterialTheme {
-        var videoId by remember { mutableStateOf("dQw4w9WgXcQ") } // Rick Astley - Never Gonna Give You Up (테스트용)
-        var pdfPath by remember { mutableStateOf("") } // 동적 로드용 PDF 경로 (Object URL)
+        var videoId by remember { mutableStateOf("dQw4w9WgXcQ") } // 기본 비디오
+        var pdfPath by remember { mutableStateOf("") } // 동적 로드용 PDF 경로
         var uploadedFileName by remember { mutableStateOf("") } // 업로드된 파일명 표시용
         
         var currentTime by remember { mutableFloatStateOf(0f) }
         var isPlaying by remember { mutableStateOf(false) }
         
-        // 싱크 성공/실패 알림 메시지 상태 추가
+        // 싱크 성공/실패 알림 메시지 상태
         var statusMessage by remember { mutableStateOf("") }
+        
+        // 백엔드로부터 불러온 저장 목록 상태 추가
+        var savedSongsList by remember { mutableStateOf<List<SongData>>(emptyList()) }
         
         // 앵커 포인트 리스트 (초기 데이터)
         var anchorPoints by remember {
@@ -52,6 +57,19 @@ fun App() {
         
         val scrollState = rememberLazyListState()
         val coroutineScope = rememberCoroutineScope()
+
+        // DB 노래 목록 동적 갱신 헬퍼 함수
+        fun refreshSongsList() {
+            SyncDataManager.loadSongs(
+                onSuccess = { list -> savedSongsList = list },
+                onFailure = { err -> statusMessage = "목록 갱신 실패: $err" }
+            )
+        }
+        
+        // 앱 구동 시 노래 목록 최초 로딩
+        LaunchedEffect(Unit) {
+            refreshSongsList()
+        }
         
         // 선형 보간 자동 스크롤 로직 연동
         LaunchedEffect(currentTime, isSyncMode) {
@@ -105,7 +123,7 @@ fun App() {
                         .fillMaxWidth(0.4f)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         text = "VibeBass 싱크 매니저",
@@ -114,11 +132,11 @@ fun App() {
                         color = MaterialTheme.colorScheme.primary
                     )
 
-                    // [순서 변경 1] 유튜브 플레이어 영역을 맨 위로 올려 absolute 포지션(top: 64px)과 오버랩시킴
+                    // 유튜브 플레이어 영역
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(240.dp)
+                            .height(200.dp)
                             .background(Color.Black)
                     ) {
                         YoutubePlayer(
@@ -127,7 +145,7 @@ fun App() {
                             isPlaying = isPlaying,
                             onTimeUpdate = { currentTime = it },
                             onStateChange = { isPlaying = it },
-                            onVideoIdFound = { videoId = it }, // [추가] PDF 자동 파싱 검색 비디오 ID 바인딩
+                            onVideoIdFound = { videoId = it },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -136,51 +154,52 @@ fun App() {
                     Text(
                         text = "현재 재생 시간: $formattedTime 초",
                         modifier = Modifier.statusBarsPadding(),
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.bodyMedium
                     )
 
-                    // [순서 변경 2] 로컬 업로드 카드를 유튜브 플레이어 아래로 내려 가려짐 방지
+                    // 로컬 업로드 카드
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer
                         )
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Text(
                                 text = "로컬 악보 등록",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleSmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Button(
-                                    onClick = { triggerPdfUpload() }
+                                    onClick = { triggerPdfUpload() },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
                                 ) {
-                                    Text("PDF 악보 선택")
+                                    Text("PDF 악보 선택", style = MaterialTheme.typography.bodySmall)
                                 }
                                 
                                 Text(
                                     text = if (uploadedFileName.isNotEmpty()) uploadedFileName else "선택된 파일 없음",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.padding(start = 8.dp)
                                 )
                             }
                         }
                     }
                     
-                    // 싱크 매니저 카드 설정
+                    // 스페이스바 싱크 모드 활성화 카드
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSyncMode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
                         )
                     ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
+                        Column(modifier = Modifier.padding(12.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -188,7 +207,7 @@ fun App() {
                             ) {
                                 Text(
                                     text = "Spacebar 싱크 모드 활성화",
-                                    style = MaterialTheme.typography.bodyMedium
+                                    style = MaterialTheme.typography.bodySmall
                                 )
                                 Switch(
                                     checked = isSyncMode,
@@ -198,67 +217,136 @@ fun App() {
                                     }
                                 )
                             }
-                            
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = if (isSyncMode) {
-                                    "작동 중: 악보를 내리다가 연주 타이밍에 맞추어 [Spacebar]를 누르면 현재 화면의 스크롤 위치와 유튜브 재생 시간이 연동되어 앵커 포인트로 저장됩니다."
-                                } else {
-                                    "대기 중: 재생 시 등록된 앵커 데이터에 맞춰 악보가 실시간으로 자동 부드럽게 스크롤됩니다."
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
                         }
                     }
                     
-                    Text(
-                        text = "앵커 포인트 리스트 (JSONB 데이터)",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    
-                    val anchorsScrollState = rememberScrollState()
-                    Column(
+                    // 패널 하단 영역: 실시간 앵커 포인트 리스트와 DB 저장 목록을 50:50 비율로 안분
+                    Row(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.background)
-                            .verticalScroll(anchorsScrollState)
-                            .padding(8.dp)
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        anchorPoints.forEach { anchor ->
-                            Row(
+                        // 1. 실시간 수집 앵커 포인트 패널 (가로 절반)
+                        Column(
+                            modifier = Modifier
+                                .weight(0.5f)
+                                .fillMaxHeight()
+                        ) {
+                            Text(
+                                text = "실시간 수집 앵커",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val anchorsScrollState = rememberScrollState()
+                            Column(
                                 modifier = Modifier
+                                    .weight(1f)
                                     .fillMaxWidth()
-                                    .padding(vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .background(MaterialTheme.colorScheme.background)
+                                    .verticalScroll(anchorsScrollState)
+                                    .padding(6.dp)
                             ) {
-                                val anchorTime = ((anchor.timeSec * 10).toInt() / 10f)
-                                Text(
-                                    text = "⏱️ ${anchorTime}초 -> 📜 ${anchor.scrollPixel.toInt()}px",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                Button(
-                                    onClick = {
-                                        anchorPoints = anchorPoints.filterNot { it == anchor }
-                                    },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                                ) {
-                                    Text("삭제", style = MaterialTheme.typography.bodySmall)
+                                anchorPoints.forEach { anchor ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val anchorTime = ((anchor.timeSec * 10).toInt() / 10f)
+                                        Text(
+                                            text = "⏱️${anchorTime}s -> 📜${anchor.scrollPixel.toInt()}px",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Button(
+                                            onClick = {
+                                                anchorPoints = anchorPoints.filterNot { it == anchor }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 1.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                                        ) {
+                                            Text("삭제", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
+                                if (anchorPoints.isEmpty()) {
+                                    Text(
+                                        text = "등록된 앵커가 없습니다.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
                                 }
                             }
                         }
-                        if (anchorPoints.isEmpty()) {
+
+                        // 2. DB 저장된 노래 목록 대시보드 패널 (가로 절반)
+                        Column(
+                            modifier = Modifier
+                                .weight(0.5f)
+                                .fillMaxHeight()
+                        ) {
                             Text(
-                                text = "등록된 앵커 포인트가 없습니다.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray
+                                text = "DB 저장 목록",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
                             )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            val songsScrollState = rememberScrollState()
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.background)
+                                    .verticalScroll(songsScrollState)
+                                    .padding(6.dp)
+                            ) {
+                                savedSongsList.forEach { song ->
+                                    Card(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp),
+                                        onClick = {
+                                            // 노래 목록 항목 클릭 시 저장된 싱크 데이터 즉시 연동 반영!
+                                            videoId = song.youtubeVideoId
+                                            anchorPoints = song.anchorPoints
+                                            uploadedFileName = "${song.title}.pdf"
+                                            statusMessage = "'${song.title}' 싱크 데이터를 불러왔습니다!"
+                                        }
+                                    ) {
+                                        Column(modifier = Modifier.padding(6.dp)) {
+                                            Text(
+                                                text = song.title,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text(
+                                                text = song.artist ?: "아티스트 미상",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = "🔗 앵커: ${song.anchorPoints.size}개",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                    }
+                                }
+                                if (savedSongsList.isEmpty()) {
+                                    Text(
+                                        text = "저장된 노래가 없습니다.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
                         }
                     }
                     
+                    // 하단 제어 버튼
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -266,15 +354,15 @@ fun App() {
                         Button(
                             onClick = { anchorPoints = emptyList() },
                             modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                            contentPadding = PaddingValues(vertical = 6.dp)
                         ) {
-                            Text("모두 초기화")
+                            Text("모두 초기화", style = MaterialTheme.typography.bodyMedium)
                         }
                         
                         Button(
                             onClick = {
                                 val cleanTitle = uploadedFileName.ifEmpty { "입춘" }.replace(".pdf", "")
-                                // [추가] SyncDataManager 연동을 통해 수집 데이터를 백엔드 API DB로 영구 저장
                                 SyncDataManager.saveSyncData(
                                     title = cleanTitle,
                                     artist = if (cleanTitle == "입춘") "한로로" else "아티스트 미상",
@@ -282,15 +370,18 @@ fun App() {
                                     anchorPoints = anchorPoints,
                                     onSuccess = {
                                         statusMessage = "싱크 데이터가 백엔드 DB에 성공적으로 저장되었습니다!"
+                                        // 저장 성공 시 목록 목록 실시간으로 다시 로딩하여 대시보드 자동 갱신!
+                                        refreshSongsList()
                                     },
                                     onFailure = { err ->
                                         statusMessage = "싱크 저장 실패: $err"
                                     }
                                 )
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 6.dp)
                         ) {
-                            Text("싱크 저장")
+                            Text("싱크 저장", style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }
@@ -315,7 +406,7 @@ fun App() {
             }
         }
         
-        // [추가] 상태 메시지 피드백을 화면 최하단에 스낵바 카드로 가시화
+        // 상태 메시지 피드백 스낵바
         if (statusMessage.isNotEmpty()) {
             Box(
                 modifier = Modifier
