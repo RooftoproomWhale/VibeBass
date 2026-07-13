@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatusCode
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.util.UriComponentsBuilder
 import reactor.core.publisher.Mono
 import reactor.netty.http.client.HttpClient
 import reactor.util.retry.Retry
@@ -42,17 +43,17 @@ class YoutubeSearchService {
         log.info("Requesting YouTube video search for query: '{}'", query)
 
         try {
+            val targetUri = UriComponentsBuilder.fromHttpUrl(searchUrl)
+                .queryParam("part", "snippet")
+                .queryParam("q", query)
+                .queryParam("type", "video")
+                .queryParam("maxResults", "1")
+                .queryParam("key", apiKey)
+                .build()
+                .toUri()
+
             return webClient.get()
-                .uri { uriBuilder ->
-                    uriBuilder
-                        .path(searchUrl)
-                        .queryParam("part", "snippet")
-                        .queryParam("q", query)
-                        .queryParam("type", "video")
-                        .queryParam("maxResults", "1")
-                        .queryParam("key", apiKey)
-                        .build()
-                }
+                .uri(targetUri)
                 .retrieve()
                 // 4xx (Client Error) 및 5xx (Server Error) 개별 예외 포착
                 .onStatus(HttpStatusCode::is4xxClientError) { clientResponse ->

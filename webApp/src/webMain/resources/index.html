@@ -193,8 +193,9 @@
                     var item = items[i];
                     var fontSize = Math.abs(item.transform[0]);
                     if (fontSize > maxFontSize && item.str.trim().length > 1) {
-                        // 광고 사이트 도메인 텍스트는 필터링
-                        if (item.str.indexOf('akbobada') === -1) {
+                        var cleanStr = item.str.trim().toLowerCase();
+                        // 광고 사이트 도메인 텍스트 및 확장자 com 등은 필터링
+                        if (cleanStr.indexOf('akbobada') === -1 && cleanStr !== 'com' && cleanStr !== 'co.kr') {
                             maxFontSize = fontSize;
                             title = item.str.trim();
                         }
@@ -216,7 +217,7 @@
 
         // 백엔드 유튜브 자동 검색 API 호출
         function searchYoutubeFromBackend(query) {
-            fetch('http://localhost:8081/api/youtube/search?query=' + encodeURIComponent(query))
+            fetch('http://localhost:8082/api/youtube/search?query=' + encodeURIComponent(query))
                 .then(function(response) {
                     if (!response.ok) {
                         throw new Error('API Response Error');

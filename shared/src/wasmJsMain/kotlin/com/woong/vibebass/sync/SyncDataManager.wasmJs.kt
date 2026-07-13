@@ -38,15 +38,17 @@ actual object SyncDataManager {
             onFailure = onFailure
         )
     }
-    
-    // Kotlin/WasmJs 제약: js(...) 블록은 중괄호 {} 없이 단일 대입 식(=)으로만 바디를 가져야 함
-    @OptIn(ExperimentalWasmJsInterop::class)
-    private fun saveSyncDataJs(
-        jsonPayload: String,
-        onSuccess: () -> Unit,
-        onFailure: (String) -> Unit
-    ) = js("""
-        fetch('http://localhost:8081/api/songs', {
+}
+
+// Kotlin/WasmJs 제약: js() 블록을 사용하는 함수는 반드시 클래스/Object 내부가 아닌 파일 최상단(Top-level) 함수로 선언해야 함
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun saveSyncDataJs(
+    jsonPayload: String,
+    onSuccess: () -> Unit,
+    onFailure: (String) -> Unit
+) {
+    js("""
+        fetch('http://localhost:8082/api/songs', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
