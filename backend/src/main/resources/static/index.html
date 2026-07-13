@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeBass</title>
+    <link type="text/css" rel="stylesheet" href="styles.css">
+    <!-- pdf.js CDN 라이브러리 추가 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        /* Compose Canvas가 브라우저 전체를 채우는 과정에서 Z-Index 충돌 방지 */
+        #ComposeTarget {
+            z-index: 1 !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+        }
+    </style>
+</head>
+<body style="margin: 0; padding: 0; background-color: #fff;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 50 50" role="presentation">
+        <circle cx="25" cy="25" r="20" stroke="#ccc" stroke-width="4" fill="none"/>
+        <circle cx="25" cy="25" r="20" stroke="#333" stroke-width="4" fill="none" stroke-linecap="round"
+                stroke-dasharray="90 125">
+            <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s"
+                               repeatCount="indefinite"/>
+        </circle>
+    </svg>
+
+    <!-- YouTube IFrame API 및 Kotlin Bridge Script -->
+    <script>
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        var player;
+        window.initYoutubePlayer = function(videoId) {
+            var container = document.getElementById('youtube-player-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'youtube-player-container';
+                container.style.position = 'absolute';
+                container.style.left = '16px';
+                container.style.top = '64px';
+                container.style.width = 'calc(40% - 32px)';
+                container.style.height = '240px';
+                container.style.zIndex = '999999';
+                container.style.background = '#000';
+                container.style.borderRadius = '8px';
+                container.style.overflow = 'hidden';
+                container.style.boxShadow = '0 4px 10px rgba(0,0,0,0.3)';
+                container.style.pointerEvents = 'auto';
+                
+                var ytPlayerDiv = document.createElement('div');
+                ytPlayerDiv.id = 'yt-player';
+                ytPlayerDiv.style.width = '100%';
+                ytPlayerDiv.style.height = '100%';
+                container.appendChild(ytPlayerDiv);
+                
+                document.body.appendChild(container);
+            }
+            container.style.display = 'block';
+            
+            if (player && typeof player.loadVideoById === 'function') {
+                player.loadVideoById(videoId);
+                return;
+            }
+
+            var checkAPI = setInterval(function() {
+                if (typeof YT !== 'undefined' && YT.Player) {
+                    clearInterval(checkAPI);
+                    player = new YT.Player('yt-player', {
+                        height: '100%',
+                        width: '100%',
+                        videoId: videoId,
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange
+                        }
+                    });
+                }
+            }, 100);
+        };
+
+        window.updateYoutubePosition = function(left, top, width, height) {
+            // CSS 절대반응형 매핑으로 통합 처리
+        };
+
+        function onPlayerReady(event) {
+            setInterval(function() {
+                if (player && typeof player.getCurrentTime === 'function') {
+                    var currentTime = player.getCurrentTime();
+                    if (typeof window.onYoutubeTimeUpdate === 'function') {
+                        window.onYoutubeTimeUpdate(currentTime);
+                    }
+                }
+            }, 100);
+        }
+
+        function onPlayerStateChange(event) {
+            var isPlaying = (event.data == YT.PlayerState.PLAYING);
+            if (typeof window.onYoutubeStateChange === 'function') {
+                window.onYoutubeStateChange(isPlaying);
+            }
+        }
+
+        // ------------------ PDF.js 및 스크롤 Bridge 연동 ------------------
+        var pdfDoc = null;
+        var pdfContainer = null;
+
+        window.initPdfViewer = function(pdfUrl) {
+            pdfContainer = document.getElementById('pdf-viewer-container');
+            if (!pdfContainer) {
+                pdfContainer = document.createElement('div');
+                pdfContainer.id = 'pdf-viewer-container';
+                pdfContainer.style.position = 'absolute';
+                pdfContainer.style.right = '24px';
+                pdfContainer.style.top = '100px';
+                pdfContainer.style.width = '55%';
+                pdfContainer.style.height = 'calc(100vh - 140px)';
+                pdfContainer.style.zIndex = '999999';
+                pdfContainer.style.background = '#eee';
+                pdfContainer.style.overflowY = 'scroll';
+                pdfContainer.style.borderRadius = '8px';
+                pdfContainer.style.border = '1px solid #ccc';
+                pdfContainer.style.boxShadow = '0 4px 10px rgba(0,0,0,0.15)';
+                pdfContainer.style.pointerEvents = 'auto';
+
+                pdfContainer.addEventListener('scroll', function() {
+                    if (typeof window.onPdfScroll === 'function') {
+                        window.onPdfScroll(pdfContainer.scrollTop);
+                    }
+                });
+                
+                document.body.appendChild(pdfContainer);
+            }
+            
+            pdfContainer.style.display = 'block';
+            pdfContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #333; font-weight: bold;">악보 로딩 중...</div>';
+
+            window.adjustOverlayLayers();
+
+            var checkPdfLib = setInterval(function() {
+                if (typeof pdfjsLib !== 'undefined') {
+                    clearInterval(checkPdfLib);
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                    
+                    pdfjsLib.getDocument({
+                        url: pdfUrl,
+                        cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+                        cMapPacked: true
+                    }).promise.then(function(pdfDoc_) {
+                        pdfDoc = pdfDoc_;
+                        if (pdfContainer) pdfContainer.innerHTML = '';
+                        
+                        // [플레이헤드] 실시간 연주 가이드 재생선 엘리먼트 동적 동기화 생성
+                        var playhead = document.createElement('div');
+                        playhead.id = 'playhead-line';
+                        playhead.style.position = 'absolute';
+                        playhead.style.left = '5%';
+                        playhead.style.width = '90%';
+                        playhead.style.height = '4px';
+                        playhead.style.backgroundColor = 'rgba(255, 0, 0, 0.5)';
+                        playhead.style.boxShadow = '0 0 6px rgba(255, 0, 0, 0.8)';
+                        playhead.style.zIndex = '99999';
+                        playhead.style.pointerEvents = 'none';
+                        playhead.style.display = 'none';
+                        playhead.style.transition = 'top 0.15s ease-out'; // 매끄러운 위치 동기화 트랜지션
+                        pdfContainer.appendChild(playhead);
+
+                        renderAllPages();
+                        
+                        // PDF 1페이지 텍스트 추출 및 유튜브 자동 검색 시작
+                        pdfDoc.getPage(1).then(extractMetadataAndSearchYoutube);
+                    }).catch(function(error) {
+                        console.error('PDF 로드 실패:', error);
+                        if (pdfContainer) {
+                            pdfContainer.innerHTML = '<div style="padding: 20px; color: red;">PDF 파일을 로드할 수 없습니다.<br>파일 규격을 확인해 주세요.</div>';
+                        }
+                    });
+                }
+            }, 100);
+        };
+
+        // PDF 1페이지 텍스트 기반 메타데이터 추출 및 유튜브 백엔드 검색 연동
+        function extractMetadataAndSearchYoutube(page) {
+            page.getTextContent().then(function(textContent) {
+                var items = textContent.items;
+                var allText = items.map(function(item) { return item.str; }).join(' ');
+                
+                // 1. 노래/아티스트 추출 시도 (예: "한로로 노래", "한로로 작사" 등)
+                var artist = "";
+                var artistMatch = allText.match(/([가-힣a-zA-Z0-9\s]+)\s+(노래|작사|작곡)/);
+                if (artistMatch) {
+                    artist = artistMatch[1].trim();
+                } else {
+                    // 폴백: 대표 한글 고유명사 키워드 매칭 시도
+                    var matches = allText.match(/[가-힣]{3}/g);
+                    if (matches && matches.length > 0) {
+                        artist = matches[0]; // 단순 매칭
+                    }
+                }
+                
+                // 2. 제목 추출 시도 (가장 글씨 크기가 큰 텍스트 탐색)
+                var title = "";
+                var maxFontSize = 0;
+                for (var i = 0; i < items.length; i++) {
+                    var item = items[i];
+                    var fontSize = Math.abs(item.transform[0]);
+                    if (fontSize > maxFontSize && item.str.trim().length > 1) {
+                        var cleanStr = item.str.trim().toLowerCase();
+                        // 광고 사이트 도메인 텍스트 및 확장자 com 등은 필터링
+                        if (cleanStr.indexOf('akbobada') === -1 && cleanStr !== 'com' && cleanStr !== 'co.kr') {
+                            maxFontSize = fontSize;
+                            title = item.str.trim();
+                        }
+                    }
+                }
+                
+                // 추출 결과 조율
+                var query = "";
+                if (title) {
+                    query = (artist && artist !== title ? artist + " " : "") + title;
+                }
+                
+                if (query.trim().length > 0) {
+                    console.log("자동 추출 검색 키워드:", query);
+                    searchYoutubeFromBackend(query);
+                }
+            });
+        }
+
+        // 백엔드 유튜브 자동 검색 API 호출
+        function searchYoutubeFromBackend(query) {
+            fetch('http://localhost:8082/api/youtube/search?query=' + encodeURIComponent(query))
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('API Response Error');
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    if (data && data.videoId) {
+                        console.log("유튜브 비디오 검색 성공 Video ID:", data.videoId);
+                        if (typeof window.onYoutubeVideoIdFound === 'function') {
+                            window.onYoutubeVideoIdFound(data.videoId);
+                        }
+                    }
+                })
+                .catch(function(err) {
+                    console.error("유튜브 자동 검색 연동 오류:", err);
+                });
+        }
+
+        function renderAllPages() {
+            if (!pdfDoc) return;
+            for (var i = 1; i <= pdfDoc.numPages; i++) {
+                renderPage(i);
+            }
+        }
+
+        function renderPage(pageNum) {
+            pdfDoc.getPage(pageNum).then(function(page) {
+                var viewport = page.getViewport({ scale: 1.5 });
+                var canvas = document.createElement('canvas');
+                var ctx = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                canvas.style.display = 'block';
+                canvas.style.margin = '16px auto';
+                canvas.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+                canvas.style.backgroundColor = '#fff';
+                canvas.style.width = '90%';
+
+                if (pdfContainer) {
+                    pdfContainer.appendChild(canvas);
+                }
+
+                var renderContext = {
+                    canvasContext: ctx,
+                    viewport: viewport
+                };
+                page.render(renderContext);
+            });
+        }
+
+        // 스크롤 이동 연동 및 [플레이헤드 빨간 가이드선 이동 동기화]
+        window.scrollToPdfPixel = function(pixel) {
+            pdfContainer = document.getElementById('pdf-viewer-container');
+            if (pdfContainer) {
+                // 악보 컨테이너 스크롤
+                pdfContainer.scrollTo({
+                    top: pixel,
+                    behavior: 'smooth'
+                });
+
+                // 플레이헤드 재생 가이드선 위치 오버레이 동기화 이동
+                var playhead = document.getElementById('playhead-line');
+                if (playhead) {
+                    playhead.style.display = 'block';
+                    playhead.style.top = pixel + 'px';
+                }
+            }
+        };
+
+        // ------------------ PDF 업로드 동적 임시 생성 방식 ------------------
+        window.triggerPdfUpload = function() {
+            var tempInput = document.createElement('input');
+            tempInput.type = 'file';
+            tempInput.accept = 'application/pdf';
+            tempInput.style.display = 'none';
+
+            tempInput.addEventListener('change', function(event) {
+                var file = event.target.files[0];
+                if (file && file.type === 'application/pdf') {
+                    var objectUrl = URL.createObjectURL(file);
+                    
+                    if (typeof window.onPdfFileSelected === 'function') {
+                        window.onPdfFileSelected(file.name, objectUrl);
+                    }
+                }
+                document.body.removeChild(tempInput);
+            });
+
+            document.body.appendChild(tempInput);
+            tempInput.click();
+        };
+
+        // Compose Canvas 로드 완료 후 오버레이 레이어 정렬 브릿지 (Canvas 뒤로 묻힘 방지)
+        window.adjustOverlayLayers = function() {
+            var ytContainer = document.getElementById('youtube-player-container');
+            var pdfContainer = document.getElementById('pdf-viewer-container');
+            
+            var composeTarget = document.getElementById('ComposeTarget');
+            if (composeTarget) {
+                composeTarget.style.zIndex = '1';
+                composeTarget.style.position = 'absolute';
+                composeTarget.style.left = '0';
+                composeTarget.style.top = '0';
+            }
+
+            if (ytContainer) {
+                document.body.appendChild(ytContainer);
+                ytContainer.style.zIndex = '999999';
+            }
+            if (pdfContainer) {
+                document.body.appendChild(pdfContainer);
+                pdfContainer.style.zIndex = '999999';
+            }
+        };
+    </script>
+
+    <script type="application/javascript" src="webApp.js"></script>
+</body>
+</html>
