@@ -16,6 +16,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.dp
 import com.woong.vibebass.components.PdfSheetViewer
 import com.woong.vibebass.components.YoutubePlayer
+import com.woong.vibebass.components.triggerPdfUpload
 import com.woong.vibebass.sync.AnchorPoint
 import com.woong.vibebass.sync.SyncCalculator
 import kotlinx.coroutines.launch
@@ -25,7 +26,8 @@ import kotlinx.coroutines.launch
 fun App() {
     MaterialTheme {
         var videoId by remember { mutableStateOf("dQw4w9WgXcQ") } // Rick Astley - Never Gonna Give You Up (테스트용)
-        val pdfPath = "sample.pdf" // 데모 PDF 리소스 경로
+        var pdfPath by remember { mutableStateOf("") } // 동적 로드용 PDF 경로 (Object URL)
+        var uploadedFileName by remember { mutableStateOf("") } // 업로드된 파일명 표시용
         
         var currentTime by remember { mutableFloatStateOf(0f) }
         var isPlaying by remember { mutableStateOf(false) }
@@ -53,21 +55,18 @@ fun App() {
                 val targetScrollPixel = SyncCalculator.calculateScrollPixel(currentTime, anchorPoints)
                 
                 // 스무딩 처리 (애니메이션 스펙을 사용해 목적지까지 감쇠하며 부드럽게 이동)
-                // 각 슬라이스의 높이를 300dp(픽셀)라고 가정하여 스크롤 오프셋을 환산
                 val itemHeight = 300f
                 val targetIndex = (targetScrollPixel / itemHeight).toInt()
                 val targetOffset = (targetScrollPixel % itemHeight).toInt()
                 
                 if (targetIndex >= 0) {
                     launch {
-                        // 스무딩 물리 감도: spring 스펙이나 tween을 활용하여 부드럽게 목적지로 이동
                         scrollState.animateScrollToItem(targetIndex, targetOffset)
                     }
                 }
             }
         }
         
-        // 키보드 입력을 받기 위한 FocusRequester
         val focusRequester = remember { FocusRequester() }
         
         LaunchedEffect(Unit) {
@@ -84,12 +83,11 @@ fun App() {
                         val itemHeight = 300f
                         val currentScrollPixel = (scrollState.firstVisibleItemIndex * itemHeight) + scrollState.firstVisibleItemScrollOffset
                         
-                        // 현재 시간 기준으로 기존 앵커가 존재하면 교체하고, 없으면 신규 삽입 후 정렬
                         val roundedTime = ((currentTime * 10).toInt() / 10f)
                         val newAnchor = AnchorPoint(roundedTime, currentScrollPixel)
                         
                         anchorPoints = (anchorPoints.filterNot { it.timeSec == roundedTime } + newAnchor).sortedBy { it.timeSec }
-                        true // 이벤트를 전파하지 않고 차단 (e.preventDefault() 역할)
+                        true
                     } else {
                         false
                     }
@@ -110,6 +108,40 @@ fun App() {
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.primary
                     )
+
+                    // PDF 로컬 업로드 제어 카드 추가
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "로컬 악보 등록",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Button(
+                                    onClick = { triggerPdfUpload() }
+                                ) {
+                                    Text("PDF 악보 선택")
+                                }
+                                
+                                Text(
+                                    text = if (uploadedFileName.isNotEmpty()) uploadedFileName else "선택된 파일 없음",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                )
+                            }
+                        }
+                    }
                     
                     // 유튜브 플레이어 영역
                     Box(
@@ -155,7 +187,6 @@ fun App() {
                                     checked = isSyncMode,
                                     onCheckedChange = { 
                                         isSyncMode = it 
-                                        // 포커스를 획득해야 키 입력 감지가 원활함
                                         focusRequester.requestFocus()
                                     }
                                 )
@@ -235,7 +266,6 @@ fun App() {
                         
                         Button(
                             onClick = {
-                                // 백엔드 연동 전 임시 토스트 성격의 출력이나 콘솔 로그 노출
                                 println("Saved JSONB: ${anchorPoints.map { "{\"time_sec\": ${it.timeSec}, \"scroll_pixel\": ${it.scrollPixel}}" }}")
                             },
                             modifier = Modifier.weight(1f)
@@ -255,6 +285,11 @@ fun App() {
                     PdfSheetViewer(
                         pdfSource = pdfPath,
                         scrollState = scrollState,
+                        onPdfFileSelected = { 
+                            uploadedFileName = it
+                            // 파일 선택 이벤트 감지 시 로딩 상태 트리거용 가상 주소 설정
+                            pdfPath = "local://" + it
+                        },
                         modifier = Modifier.fillMaxSize()
                     )
                 }

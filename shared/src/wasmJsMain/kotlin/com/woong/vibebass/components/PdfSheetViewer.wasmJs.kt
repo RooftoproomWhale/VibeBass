@@ -1,56 +1,103 @@
 package com.woong.vibebass.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import kotlin.js.ExperimentalWasmJsInterop
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalWasmJsInterop::class)
 @Composable
 actual fun PdfSheetViewer(
     pdfSource: String,
     scrollState: LazyListState,
+    onPdfFileSelected: (String) -> Unit,
     modifier: Modifier
 ) {
-    // WasmJs 타겟에서는 pdf.js를 이용해 로컬 PDF 파일을 메모리 Canvas에 그리고,
-    // 그 Canvas 이미지를 Compose ImageBitmap으로 가져와 LazyColumn에 렌더링하는 형태로 설계합니다.
-    LaunchedEffect(pdfSource) {
-        loadLocalPdfJs(pdfSource)
-    }
+    val coroutineScope = rememberCoroutineScope()
 
-    // 1단계 MVP 검증을 위한 20개의 더미 악보 슬라이스(높이 300dp) 세로 렌더링
-    LazyColumn(
-        state = scrollState,
-        modifier = modifier
-    ) {
-        items(20) { index ->
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(300.dp)
-                    .background(if (index % 2 == 0) Color.LightGray else Color.Gray),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(text = "악보 페이지 ${index + 1} (소스: $pdfSource)", color = Color.Black)
+    LaunchedEffect(pdfSource) {
+        if (pdfSource.isNotEmpty()) {
+            initPdfViewerJs(pdfSource)
+        }
+        
+        // 스크롤 동기화 등록
+        bindPdfScrollCallback { scrollTop ->
+            val itemHeight = 300f
+            val index = (scrollTop / itemHeight).toInt()
+            val offset = (scrollTop % itemHeight).toInt()
+            
+            coroutineScope.launch {
+                scrollState.scrollToItem(index, offset)
             }
         }
+
+        // 파일 선택 완료 콜백 브릿지 등록
+        bindPdfFileSelectedCallback { fileName ->
+            onPdfFileSelected(fileName)
+        }
     }
+
+    val index = scrollState.firstVisibleItemIndex
+    val offset = scrollState.firstVisibleItemScrollOffset
+    LaunchedEffect(index, offset) {
+        val itemHeight = 300f
+        val calculatedPixel = (index * itemHeight) + offset
+        scrollToPdfPixelJs(calculatedPixel.toDouble())
+    }
+
+    Box(modifier = modifier)
 }
 
 @OptIn(ExperimentalWasmJsInterop::class)
-private fun loadLocalPdfJs(pdfSource: String) {
+actual fun triggerPdfUpload() {
     js("""
-        console.log('로컬 PDF 로드 시작:', pdfSource);
-        // pdf.js를 활용하여 바이너리 파싱 후 Compose Canvas와 연동하는 브릿지 로직 시뮬레이션
+        if (typeof window.triggerPdfUpload === 'function') {
+            window.triggerPdfUpload();
+        } else {
+            console.warn('window.triggerPdfUpload 함수가 정의되지 않았습니다.');
+        }
+    """)
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun initPdfViewerJs(pdfUrl: String) {
+    js("""
+        if (typeof window.initPdfViewer === 'function') {
+            window.initPdfViewer(pdfUrl);
+        }
+    """)
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun scrollToPdfPixelJs(pixel: Double) {
+    js("""
+        if (typeof window.scrollToPdfPixel === 'function') {
+            var container = document.getElementById('pdf-viewer-container');
+            if (container && Math.abs(container.scrollTop - pixel) > 5) {
+                window.scrollToPdfPixel(pixel);
+            }
+        }
+    """)
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun bindPdfScrollCallback(onScroll: (Double) -> Unit) {
+    js("""
+        window.onPdfScroll = function(scrollTop) {
+            onScroll(scrollTop);
+        };
+    """)
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun bindPdfFileSelectedCallback(onSelected: (String) -> Unit) {
+    js("""
+        window.onPdfFileSelected = function(fileName) {
+            onSelected(fileName);
+        };
     """)
 }
