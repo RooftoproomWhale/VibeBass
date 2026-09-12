@@ -1,11 +1,11 @@
 package com.woong.vibebass.components
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import kotlin.js.ExperimentalWasmJsInterop
 
 @OptIn(ExperimentalWasmJsInterop::class)
@@ -19,19 +19,19 @@ actual fun YoutubePlayer(
     onVideoIdFound: (String) -> Unit,
     modifier: Modifier
 ) {
-    LaunchedEffect(videoId) {
+    val latestTime = rememberUpdatedState(onTimeUpdate)
+    val latestState = rememberUpdatedState(onStateChange)
+    val latestVideo = rememberUpdatedState(onVideoIdFound)
+    DisposableEffect(Unit) {
         bindYoutubeBridgeCallbacks(
-            onTimeUpdate = { time -> onTimeUpdate(time.toFloat()) },
-            onStateChange = { playing -> onStateChange(playing) },
-            onVideoIdFound = { foundId -> onVideoIdFound(foundId) }
+            onTimeUpdate = { latestTime.value(it.toFloat()) },
+            onStateChange = { latestState.value(it) },
+            onVideoIdFound = { latestVideo.value(it) }
         )
-        setupYoutubePlayerJs(videoId)
+        onDispose { hideYoutubePlayerJs() }
     }
-
-    // 오버레이 유튜브 컨테이너의 크기/위치는 CSS calc 매핑으로 이중 렌더링 오차를 완전히 격리 차단
-    Box(
-        modifier = modifier.background(Color.Black)
-    )
+    LaunchedEffect(videoId) { setupYoutubePlayerJs(videoId) }
+    Box(modifier = modifier.mediaOverlayBounds("youtube"))
 }
 
 @OptIn(ExperimentalWasmJsInterop::class)
@@ -41,25 +41,19 @@ private fun bindYoutubeBridgeCallbacks(
     onVideoIdFound: (String) -> Unit
 ) {
     js("""
-        window.onYoutubeTimeUpdate = function(time) {
-            onTimeUpdate(time);
-        };
-        window.onYoutubeStateChange = function(isPlaying) {
-            onStateChange(isPlaying);
-        };
-        window.onYoutubeVideoIdFound = function(foundId) {
-            onVideoIdFound(foundId);
-        };
+        window.onYoutubeTimeUpdate = function(time) { onTimeUpdate(time); };
+        window.onYoutubeStateChange = function(playing) { onStateChange(playing); };
+        window.onYoutubeVideoIdFound = function(id) { onVideoIdFound(id); };
     """)
 }
 
 @OptIn(ExperimentalWasmJsInterop::class)
 private fun setupYoutubePlayerJs(videoId: String) {
-    js("""
-        if (typeof window.initYoutubePlayer === 'function') {
-            window.initYoutubePlayer(videoId);
-        } else {
-            console.warn('window.initYoutubePlayer 함수가 아직 정의되지 않았습니다.');
-        }
-    """)
+    js("window.initYoutubePlayer?.(videoId)")
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun hideYoutubePlayerJs() {
+    // Playback and callbacks survive compact tab changes; the next mount rebinds latest state.
+    js("window.hideYoutubePlayer?.()")
 }

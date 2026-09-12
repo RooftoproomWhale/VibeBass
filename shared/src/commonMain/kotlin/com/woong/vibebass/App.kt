@@ -3,24 +3,28 @@ package com.woong.vibebass
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,547 +35,441 @@ import com.woong.vibebass.sync.AnchorPoint
 import com.woong.vibebass.sync.SongData
 import com.woong.vibebass.sync.SyncCalculator
 import com.woong.vibebass.sync.SyncDataManager
-import kotlinx.coroutines.launch
 
-// 프리미엄 사이버펑크 딥 다크 테마 컬러 구성 (Aesthetics 지침 적극 반영)
-private val BrandNeonGreen = Color(0xFF00E676)
-private val BrandElectricViolet = Color(0xFF7C4DFF)
-private val DarkBgBase = Color(0xFF0B0C10)
-private val DarkBgPanel = Color(0xFF14151F)
-private val DarkCardBase = Color(0xFF1E2030)
-private val TextMuted = Color(0xFF9EA3B8)
-
-private val VibeBassDarkColorScheme = darkColorScheme(
-    primary = BrandNeonGreen,
-    secondary = BrandElectricViolet,
-    background = DarkBgBase,
-    surface = DarkBgPanel,
-    surfaceVariant = DarkCardBase,
-    onPrimary = Color(0xFF0A0F0D),
-    onSecondary = Color(0xFFFFFFFF),
-    onBackground = Color(0xFFF1F5F9),
-    onSurface = Color(0xFFE2E8F0),
-    onSurfaceVariant = Color(0xFFCBD5E1)
-)
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App() {
-    MaterialTheme(colorScheme = VibeBassDarkColorScheme) {
-        var videoId by remember { mutableStateOf("dQw4w9WgXcQ") } // 기본 비디오
-        var pdfPath by remember { mutableStateOf("") } // 동적 로드용 PDF 경로
-        var uploadedFileName by remember { mutableStateOf("") } // 업로드된 파일명 표시용
-        
+    PracticeTheme {
+        var videoId by remember { mutableStateOf("") }
+        var videoInput by remember { mutableStateOf("") }
+        var videoError by remember { mutableStateOf(false) }
+        var editingVideo by remember { mutableStateOf(false) }
+        var videoRetry by remember { mutableIntStateOf(0) }
+        var pdfPath by remember { mutableStateOf("") }
+        var title by remember { mutableStateOf("") }
+        var artist by remember { mutableStateOf("") }
+        var fileName by remember { mutableStateOf("") }
         var currentTime by remember { mutableFloatStateOf(0f) }
+        var scrollPosition by remember { mutableFloatStateOf(0f) }
         var isPlaying by remember { mutableStateOf(false) }
-        
-        // 싱크 성공/실패 알림 메시지 상태
-        var statusMessage by remember { mutableStateOf("") }
-        
-        // 백엔드로부터 불러온 저장 목록 상태
-        var savedSongsList by remember { mutableStateOf<List<SongData>>(emptyList()) }
-        
-        // 앵커 포인트 리스트 (초기 데이터)
-        var anchorPoints by remember {
-            mutableStateOf(
-                listOf(
-                    AnchorPoint(0f, 0f),
-                    AnchorPoint(10f, 300f),
-                    AnchorPoint(20f, 800f),
-                    AnchorPoint(40f, 1500f)
-                )
-            )
-        }
-        
         var isSyncMode by remember { mutableStateOf(false) }
-        
-        val scrollState = rememberLazyListState()
-        val coroutineScope = rememberCoroutineScope()
+        var autoFollow by remember { mutableStateOf(true) }
+        var anchors by remember { mutableStateOf<List<AnchorPoint>>(emptyList()) }
+        var undoAnchors by remember { mutableStateOf<List<AnchorPoint>?>(null) }
+        var songs by remember { mutableStateOf<List<SongData>>(emptyList()) }
+        var selectedSongId by remember { mutableStateOf<Long?>(null) }
+        var attachingSavedScore by remember { mutableStateOf(false) }
+        var loadingSongs by remember { mutableStateOf(true) }
+        var libraryError by remember { mutableStateOf(false) }
+        var saving by remember { mutableStateOf(false) }
+        var dirty by remember { mutableStateOf(false) }
+        var status by remember { mutableStateOf("") }
+        var libraryTab by remember { mutableStateOf(false) }
+        var compactControls by remember { mutableStateOf(false) }
+        var pendingChange by remember { mutableStateOf<(() -> Unit)?>(null) }
+        val practiceFocus = remember { FocusRequester() }
 
-        // DB 노래 목록 동적 갱신 헬퍼 함수
-        fun refreshSongsList() {
+        fun refreshSongs() {
+            loadingSongs = true
+            libraryError = false
             SyncDataManager.loadSongs(
-                onSuccess = { list -> savedSongsList = list },
-                onFailure = { err -> statusMessage = "목록 갱신 실패: $err" }
+                onSuccess = { songs = it; loadingSongs = false },
+                onFailure = { loadingSongs = false; libraryError = true }
             )
         }
-        
-        // 앱 구동 시 노래 목록 최초 로딩
-        LaunchedEffect(Unit) {
-            refreshSongsList()
+        fun replaceSession(action: () -> Unit) {
+            if (dirty) pendingChange = action else action()
         }
-        
-        // 선형 보간 자동 스크롤 로직 연동
-        LaunchedEffect(currentTime, isSyncMode) {
-            if (!isSyncMode && anchorPoints.isNotEmpty()) {
-                val targetScrollPixel = SyncCalculator.calculateScrollPixel(currentTime, anchorPoints)
-                
-                // KMP expect/actual 브릿지를 경유하여 자바스크립트의 scrollToPdfPixel 함수 호출
-                SyncDataManager.scrollToPdfPixel(targetScrollPixel.toDouble())
-                
-                // 스무딩 처리 (애니메이션 스펙을 사용해 목적지까지 감쇠하며 부드럽게 이동)
-                val itemHeight = 300f
-                val targetIndex = (targetScrollPixel / itemHeight).toInt()
-                val targetOffset = (targetScrollPixel % itemHeight).toInt()
-                
-                if (targetIndex >= 0) {
-                    launch {
-                        scrollState.animateScrollToItem(targetIndex, targetOffset)
+        fun choosePdf() {
+            if (attachingSavedScore) triggerPdfUpload() else replaceSession { triggerPdfUpload() }
+        }
+        fun recordAnchor() {
+            if (pdfPath.isEmpty() || videoId.isEmpty() || !isSyncMode) return
+            val time = (currentTime * 10).toInt() / 10f
+            undoAnchors = anchors
+            anchors = (anchors.filterNot { it.timeSec == time } + AnchorPoint(time, scrollPosition)).sortedBy { it.timeSec }
+            dirty = true
+            status = "${practiceTime(time)} 위치를 기록했습니다."
+        }
+        fun saveSession() {
+            if (saving || anchors.isEmpty() || videoId.isEmpty() || title.isBlank()) return
+            val savedAnchors = anchors
+            val savedSource = pdfPath
+            val savedVideo = videoId
+            saving = true
+            status = ""
+            SyncDataManager.saveSyncData(title.trim(), artist, videoId, savedAnchors,
+                onSuccess = {
+                    saving = false
+                    if (savedSource == pdfPath && savedVideo == videoId && savedAnchors == anchors) dirty = false
+                    status = "싱크를 저장했습니다. PDF는 이 기기에서 다시 선택해 주세요."
+                    refreshSongs()
+                },
+                onFailure = {
+                    saving = false
+                    status = "저장하지 못했습니다. 서버 연결을 확인하고 다시 시도해 주세요."
+                }
+            )
+        }
+
+        LaunchedEffect(Unit) { refreshSongs() }
+        LaunchedEffect(currentTime, isSyncMode, autoFollow, pdfPath, anchors) {
+            if (pdfPath.isNotEmpty() && !isSyncMode && autoFollow && anchors.isNotEmpty()) {
+                SyncDataManager.scrollToPdfPixel(SyncCalculator.calculateScrollPixel(currentTime, anchors).toDouble())
+            }
+        }
+
+        BoxWithConstraints(Modifier.fillMaxSize().background(PracticeColors.Desk)) {
+            val compact = maxWidth < 900.dp
+            val tight = maxWidth < 480.dp
+            val inactivePane = Modifier.size(0.dp).focusProperties { canFocus = false }.clearAndSetSemantics { }
+            val controls: @Composable (Modifier) -> Unit = { modifier ->
+                Column(modifier.background(PracticeColors.Surface).clipToBounds()) {
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp)) {
+                        PaneHeading("연습 컨트롤")
+                        Spacer(Modifier.height(12.dp))
+                        Box(Modifier.fillMaxWidth().height(200.dp).background(PracticeColors.Desk, RoundedCornerShape(8.dp))) {
+                            key(videoRetry) {
+                                YoutubePlayer(
+                                    videoId = videoId, currentTime = currentTime, isPlaying = isPlaying,
+                                    onTimeUpdate = { currentTime = it }, onStateChange = { isPlaying = it },
+                                    onVideoIdFound = { videoId = it; videoInput = "https://youtu.be/$it"; currentTime = 0f },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                            if (videoId.isEmpty()) {
+                                Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("함께 연주할 영상", style = MaterialTheme.typography.titleMedium)
+                                    Spacer(Modifier.height(8.dp))
+                                    Text("악보를 선택하면 영상을 찾아드려요.", textAlign = TextAlign.Center, color = PracticeColors.Muted)
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        if (videoId.isEmpty() || editingVideo) {
+                            OutlinedTextField(
+                                value = videoInput, onValueChange = { videoInput = it; videoError = false },
+                                label = { Text("YouTube 링크") }, singleLine = true, isError = videoError,
+                                supportingText = if (videoError) ({ Text("올바른 YouTube 링크를 입력해 주세요.") }) else null,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            TextButton(onClick = {
+                                val parsed = youtubeVideoId(videoInput)
+                                videoError = parsed == null
+                                if (parsed != null) {
+                                    videoId = parsed; currentTime = 0f; videoRetry++; editingVideo = false
+                                    if (anchors.isNotEmpty()) dirty = true
+                                }
+                            }, enabled = videoInput.isNotBlank(), modifier = Modifier.heightIn(min = 48.dp)) { Text("영상 연결") }
+                        } else {
+                            TextButton(onClick = { editingVideo = true }, modifier = Modifier.heightIn(min = 48.dp)) { Text("영상 변경 · 다시 연결") }
+                        }
+                        Row(Modifier.fillMaxWidth().padding(vertical = 16.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(practiceTime(currentTime), fontSize = 32.sp, fontFamily = FontFamily.Monospace, color = PracticeColors.Ink)
+                            Text(if (isPlaying) "재생 중" else if (videoId.isEmpty()) "영상 대기" else "일시 정지",
+                                style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ModeButton("연습", !isSyncMode, Modifier.weight(1f)) { isSyncMode = false }
+                            ModeButton("싱크 편집", isSyncMode, Modifier.weight(1f)) {
+                                isSyncMode = true; libraryTab = false; practiceFocus.requestFocus()
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Row(Modifier.fillMaxWidth()) {
+                            WorkspaceTab("싱크 포인트", !libraryTab, Modifier.weight(1f)) { libraryTab = false }
+                            WorkspaceTab("보관함", libraryTab, Modifier.weight(1f)) { libraryTab = true }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        if (libraryTab) {
+                            PaneHeading("보관된 연주 목록")
+                            SongLibrary(songs, selectedSongId, loadingSongs, libraryError, ::refreshSongs) { song ->
+                                replaceSession {
+                                    selectedSongId = song.id
+                                    videoId = song.youtubeVideoId
+                                    videoInput = "https://youtu.be/${song.youtubeVideoId}"
+                                    videoError = false
+                                    currentTime = 0f
+                                    anchors = song.anchorPoints.sortedBy { it.timeSec }
+                                    undoAnchors = null
+                                    title = song.title
+                                    artist = song.artist.orEmpty()
+                                    fileName = ""
+                                    pdfPath = ""
+                                    scrollPosition = 0f
+                                    attachingSavedScore = true
+                                    dirty = false
+                                    compactControls = false
+                                    isSyncMode = false
+                                    status = "싱크를 불러왔습니다. '${song.title}'의 PDF를 선택해 주세요."
+                                }
+                            }
+                        } else {
+                            Text(if (isSyncMode) "악보를 원하는 위치로 옮기고 기록하세요." else "저장한 위치에 맞춰 악보가 따라갑니다.", color = PracticeColors.Muted)
+                            Spacer(Modifier.height(12.dp))
+                            if (isSyncMode) {
+                                StudioButton("현재 위치 기록", ::recordAnchor, enabled = pdfPath.isNotEmpty() && videoId.isNotEmpty(), modifier = Modifier.fillMaxWidth())
+                            } else {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("자동 스크롤", style = MaterialTheme.typography.titleMedium)
+                                    Switch(checked = autoFollow, onCheckedChange = { autoFollow = it },
+                                        modifier = Modifier.semantics { contentDescription = "자동 스크롤" }, enabled = anchors.isNotEmpty())
+                                }
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            SyncPointList(anchors, isSyncMode) { anchor ->
+                                undoAnchors = anchors
+                                anchors = anchors.filterNot { it == anchor }
+                                dirty = true
+                                status = "싱크 포인트를 삭제했습니다."
+                            }
+                            if (undoAnchors != null) {
+                                TextButton(onClick = {
+                                    anchors = undoAnchors.orEmpty(); undoAnchors = null; dirty = true
+                                    status = "이전 싱크 포인트를 복원했습니다."
+                                }, modifier = Modifier.heightIn(min = 48.dp)) { Text("편집 되돌리기") }
+                            }
+                        }
+                    }
+                    HorizontalDivider(color = PracticeColors.Divider)
+                    Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                        StudioButton(if (saving) "저장 중..." else if (selectedSongId != null) "사본 저장" else "싱크 저장", ::saveSession,
+                            enabled = !saving && dirty && title.isNotBlank() && videoId.isNotEmpty() && anchors.isNotEmpty(), modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(8.dp))
+                        Text(if (pdfPath.isNotEmpty() && anchors.isEmpty()) "싱크 포인트를 1개 이상 기록해 주세요."
+                            else if (selectedSongId != null) "원본을 유지하고 새 항목으로 저장합니다."
+                            else if (dirty) "저장하지 않은 변경사항이 있어요." else "싱크와 영상 정보가 보관함에 저장됩니다.",
+                            style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
                     }
                 }
             }
-        }
-        
-        val focusRequester = remember { FocusRequester() }
-        
-        LaunchedEffect(Unit) {
-            focusRequester.requestFocus()
-        }
-        
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(DarkBgBase)
-                .focusRequester(focusRequester)
-                .onPreviewKeyEvent { keyEvent ->
-                    // 싱크 모드에서 스페이스바 입력 감지 시 앵커 포인트 추가
-                    if (isSyncMode && keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.Spacebar) {
-                        val itemHeight = 300f
-                        val currentScrollPixel = (scrollState.firstVisibleItemIndex * itemHeight) + scrollState.firstVisibleItemScrollOffset
-                        
-                        val roundedTime = ((currentTime * 10).toInt() / 10f)
-                        val newAnchor = AnchorPoint(roundedTime, currentScrollPixel)
-                        
-                        anchorPoints = (anchorPoints.filterNot { it.timeSec == roundedTime } + newAnchor).sortedBy { it.timeSec }
-                        true
-                    } else {
-                        false
+            val score: @Composable (Modifier) -> Unit = { modifier ->
+                Column(modifier.clipToBounds()) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).background(PracticeColors.Surface).padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        PaneHeading("악보")
+                        Text(if (pdfPath.isEmpty()) "PDF 대기" else if (isSyncMode) "싱크 편집 중" else "연습 모드",
+                            style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
                     }
-                }
-        ) {
-            // 메인 콘텐츠 레이아웃
-            Column(modifier = Modifier.fillMaxSize()) {
-                // 프리미엄 탑 브랜드 헤더 바
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(DarkBgPanel)
-                        .padding(horizontal = 24.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(Brush.linearGradient(listOf(BrandNeonGreen, BrandElectricViolet))),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("V", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = "VibeBass Studio",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp,
-                            letterSpacing = 1.sp
-                        )
+                    HorizontalDivider(color = PracticeColors.Divider)
+                    Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                        PdfSheetViewer(pdfSource = pdfPath, onScrollPositionChanged = { scrollPosition = it },
+                            onPdfFileSelected = { name, url ->
+                                if (!attachingSavedScore) {
+                                    title = name.substringBeforeLast('.', name)
+                                    artist = ""
+                                    videoId = ""
+                                    videoInput = ""
+                                    videoError = false
+                                    currentTime = 0f
+                                    anchors = emptyList()
+                                    undoAnchors = null
+                                    selectedSongId = null
+                                    dirty = false
+                                    isSyncMode = true
+                                }
+                                attachingSavedScore = false
+                                fileName = name
+                                pdfPath = url
+                                scrollPosition = 0f
+                                compactControls = false
+                                status = ""
+                            }, modifier = Modifier.fillMaxSize())
+                        if (pdfPath.isEmpty()) ScoreEmptyState(attachingSavedScore, ::choosePdf, Modifier.fillMaxSize())
                     }
-                    
-                    // 현재 선택된 곡 이름 뱃지 표시 (깨지는 이모지 대신 텍스트로 보완)
-                    val activeTitle = uploadedFileName.ifEmpty { "선택된 악보 없음" }.replace(".pdf", "")
-                    Surface(
-                        color = DarkCardBase,
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.border(1.dp, Color(0xFF33364D), RoundedCornerShape(20.dp))
-                    ) {
-                        Text(
-                            text = "[TRACK] $activeTitle",
-                            color = BrandNeonGreen,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-
-                Row(modifier = Modifier.fillMaxSize()) {
-                    // 좌측: 모든 제어가 집약된 사이드 패널 (비중 38%) - 가려짐을 물리적으로 방지하기 위해 이 영역에 컨트롤러 내장
-                    Column(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(0.38f)
-                            .background(DarkBgPanel)
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // 유튜브 플레이어 영역 (유리 섀도우 카드 매핑)
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(200.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(1.dp, Color(0xFF2E3147), RoundedCornerShape(12.dp))
-                                .shadow(8.dp)
-                                .background(Color.Black)
-                        ) {
-                            YoutubePlayer(
-                                videoId = videoId,
-                                currentTime = currentTime,
-                                isPlaying = isPlaying,
-                                onTimeUpdate = { currentTime = it },
-                                onStateChange = { isPlaying = it },
-                                onVideoIdFound = { videoId = it },
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-
-                        // 로컬 업로드 / 앵커 연동 제어 멀티 패널
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = DarkCardBase)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "로컬 악보 올리기",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    Button(
-                                        onClick = { triggerPdfUpload() },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = BrandElectricViolet)
-                                    ) {
-                                        Text("악보 선택", style = MaterialTheme.typography.bodySmall, color = Color.White)
-                                    }
-                                }
-                                if (uploadedFileName.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = "FILE: $uploadedFileName",
-                                        color = BrandNeonGreen,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-
-                        // 50:50 앵커 vs DB 대시보드 리스트
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            // 1. 실시간 앵커 포인트 리스트 (좌측 절반)
-                            Column(modifier = Modifier.weight(0.5f).fillMaxHeight()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "실시간 수집 앵커",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    TextButton(
-                                        onClick = { anchorPoints = emptyList() },
-                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                                    ) {
-                                        Text("비우기", color = Color.Red, fontSize = 11.sp)
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                val anchorsScrollState = rememberScrollState()
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF0F1016))
-                                        .verticalScroll(anchorsScrollState)
-                                        .padding(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    anchorPoints.forEach { anchor ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Color(0xFF1E2030))
-                                                .padding(horizontal = 6.dp, vertical = 4.dp),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            val anchorTime = ((anchor.timeSec * 10).toInt() / 10f)
-                                            Text(
-                                                text = "T: ${anchorTime}s\nP: ${anchor.scrollPixel.toInt()}px",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontSize = 11.sp,
-                                                lineHeight = 13.sp,
-                                                color = Color.White
-                                            )
-                                            IconButton(
-                                                onClick = {
-                                                    anchorPoints = anchorPoints.filterNot { it == anchor }
-                                                },
-                                                modifier = Modifier.size(24.dp)
-                                            ) {
-                                                Text("DEL", fontSize = 9.sp, color = Color.Red, fontWeight = FontWeight.Bold)
-                                            }
-                                        }
-                                    }
-                                    if (anchorPoints.isEmpty()) {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            Text("등록 대기", color = TextMuted, fontSize = 11.sp)
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 2. DB 저장된 곡 목록 플레이리스트 대시보드 (우측 절반 - Spotify 테마)
-                            Column(modifier = Modifier.weight(0.5f).fillMaxHeight()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().height(36.dp), // 높이 정렬
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "보관된 연주 목록",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = BrandNeonGreen
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                val songsScrollState = rememberScrollState()
-                                Column(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0xFF0F1016))
-                                        .verticalScroll(songsScrollState)
-                                        .padding(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    savedSongsList.forEach { song ->
-                                        Surface(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable {
-                                                    videoId = song.youtubeVideoId
-                                                    anchorPoints = song.anchorPoints
-                                                    uploadedFileName = "${song.title}.pdf"
-                                                    statusMessage = "'${song.title}' 싱크 데이터를 로드했습니다!"
-                                                },
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = Color(0xFF1E2030)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                // [LP] (레코드판 그라데이션) 미니 플레이스홀더 앨범아트 렌더링
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(32.dp)
-                                                        .clip(RoundedCornerShape(4.dp))
-                                                        .background(Brush.radialGradient(listOf(BrandElectricViolet, Color.Black))),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text("[LP]", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
-                                                }
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        text = song.title,
-                                                        style = MaterialTheme.typography.bodySmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = Color.White,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Text(
-                                                        text = song.artist ?: "아티스트 미상",
-                                                        fontSize = 9.sp,
-                                                        color = TextMuted,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if (savedSongsList.isEmpty()) {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            Text("보관함이 빕니다.", color = TextMuted, fontSize = 11.sp)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // 💡 [레이아웃 대수술] 오디오 플로팅 컨트롤러 카드를 좌측 사이드 패널 맨 하단에 완전히 합체 (우측 악보 영역 가려짐 버그 완전 해결)
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(1.dp, Color(0xFF32364C).copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = DarkCardBase)
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    val formattedSec = ((currentTime * 10).toInt() / 10f)
-                                    Text(
-                                        text = "TIME: ${formattedSec}s",
-                                        color = Color.White,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Surface(
-                                        color = if (isPlaying) BrandNeonGreen.copy(alpha = 0.2f) else Color.Red.copy(alpha = 0.2f),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text(
-                                            text = if (isPlaying) "PLAYING" else "PAUSED",
-                                            color = if (isPlaying) BrandNeonGreen else Color.Red,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                                
-                                Spacer(modifier = Modifier.height(8.dp))
-                                
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = "Sync 모드",
-                                            color = Color.White,
-                                            fontSize = 11.sp
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Switch(
-                                            checked = isSyncMode,
-                                            onCheckedChange = { 
-                                                isSyncMode = it 
-                                                focusRequester.requestFocus()
-                                            },
-                                            colors = SwitchDefaults.colors(
-                                                checkedThumbColor = BrandNeonGreen,
-                                                checkedTrackColor = BrandNeonGreen.copy(alpha = 0.4f)
-                                            ),
-                                            modifier = Modifier.scale(0.8f) // 모바일/컴팩트 스케일링
-                                        )
-                                    }
-                                    
-                                    Button(
-                                        onClick = {
-                                            val cleanTitle = uploadedFileName.ifEmpty { "입춘" }.replace(".pdf", "")
-                                            SyncDataManager.saveSyncData(
-                                                title = cleanTitle,
-                                                artist = if (cleanTitle == "입춘") "한로로" else "아티스트 미상",
-                                                youtubeVideoId = videoId,
-                                                anchorPoints = anchorPoints,
-                                                onSuccess = {
-                                                    statusMessage = "싱크 데이터가 백엔드 DB에 성공적으로 저장되었습니다!"
-                                                    refreshSongsList()
-                                                },
-                                                onFailure = { err ->
-                                                    statusMessage = "싱크 저장 실패: $err"
-                                                }
-                                            )
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = BrandNeonGreen),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Text("싱크 저장", color = Color(0xFF0B0C10), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    // 우측: PDF 뷰어 영역 (비중 62%) - 프리미엄 페이퍼 섀도우 처리
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .weight(0.62f)
-                            .background(DarkBgBase)
-                            .padding(18.dp)
-                    ) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .shadow(12.dp, RoundedCornerShape(12.dp))
-                                .border(1.dp, Color(0xFF2E3147), RoundedCornerShape(12.dp)),
-                            color = Color(0xFFF9F9FA), // 종이 감성의 연한 미색 배경 적용
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            PdfSheetViewer(
-                                pdfSource = pdfPath,
-                                scrollState = scrollState,
-                                onPdfFileSelected = { fileName, objectUrl -> 
-                                    uploadedFileName = fileName
-                                    pdfPath = objectUrl
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
+                    if (compact && isSyncMode && pdfPath.isNotEmpty()) {
+                        Row(Modifier.fillMaxWidth().background(PracticeColors.Surface).padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(practiceTime(currentTime), fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
+                            StudioButton("현재 위치 기록", ::recordAnchor, enabled = videoId.isNotEmpty())
                         }
                     }
                 }
             }
-        }
-        
-        // 상태 메시지 피드백 스낵바 (우측 악보 영역에 가려지지 않도록 좌측 패널 38% 범위 내에만 생성 격리)
-        if (statusMessage.isNotEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(0.38f) // 좌측 38% 패널 영역 안에만 스낵바를 가둠
-                    .padding(16.dp),
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                Snackbar(
-                    action = {
-                        TextButton(onClick = { statusMessage = "" }) {
-                            Text("확인", color = MaterialTheme.colorScheme.inversePrimary)
+
+            Column(Modifier.fillMaxSize().focusRequester(practiceFocus).onKeyEvent {
+                if (it.type == KeyEventType.KeyDown && it.key == Key.Spacebar && isSyncMode && pdfPath.isNotEmpty() && videoId.isNotEmpty()) {
+                    recordAnchor(); true
+                } else false
+            }.focusable()) {
+                Row(Modifier.fillMaxWidth().height(64.dp).background(PracticeColors.Surface).padding(horizontal = if (tight) 16.dp else 24.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("VibeBass Studio", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.weight(1f))
+                    if (!tight) Text("나의 연습 공간", style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
+                }
+                HorizontalDivider(color = PracticeColors.Divider)
+                Row(Modifier.fillMaxWidth().padding(horizontal = if (tight) 16.dp else 24.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(title.ifEmpty { "오늘의 연습" }, style = if (compact) MaterialTheme.typography.headlineSmall else MaterialTheme.typography.headlineMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.semantics { heading() })
+                        Text(if (fileName.isNotEmpty()) fileName else if (attachingSavedScore) "이 곡의 PDF를 연결해 주세요" else "악보를 펼치고, 한 곡에 집중하세요.",
+                            style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    StudioButton("악보 선택", ::choosePdf, primary = false)
+                }
+                if (compact) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        WorkspaceTab("악보", !compactControls, Modifier.weight(1f)) { compactControls = false }
+                        WorkspaceTab("컨트롤 · 보관함", compactControls, Modifier.weight(1f)) { compactControls = true }
+                    }
+                }
+                Row(Modifier.weight(1f).fillMaxWidth().padding(horizontal = if (compact) 0.dp else 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 16.dp)) {
+                    // Keep callbacks alive when compact navigation hides a pane.
+                    controls(if (!compact) Modifier.width(344.dp).fillMaxHeight()
+                        else if (compactControls) Modifier.weight(1f).fillMaxHeight() else inactivePane)
+                    score(if (!compact || !compactControls) Modifier.weight(1f).fillMaxHeight() else inactivePane)
+                }
+                if (pendingChange != null) {
+                    Column(Modifier.fillMaxWidth().background(PracticeColors.Surface).padding(16.dp)) {
+                        Text("저장하지 않은 싱크가 있어요. 새 악보나 곡으로 바꿀까요?")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TextButton(onClick = { pendingChange = null }, modifier = Modifier.heightIn(min = 48.dp)) { Text("취소") }
+                            TextButton(onClick = { val action = pendingChange; pendingChange = null; action?.invoke() }, modifier = Modifier.heightIn(min = 48.dp)) { Text("저장하지 않고 바꾸기") }
                         }
                     }
-                ) {
-                    Text(statusMessage)
+                } else if (status.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().background(PracticeColors.Surface).padding(horizontal = 16.dp)
+                        .semantics { liveRegion = LiveRegionMode.Polite }, verticalAlignment = Alignment.CenterVertically) {
+                        Text(status, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { status = "" }, modifier = Modifier.heightIn(min = 48.dp)) { Text("닫기") }
+                    }
+                } else if (!compact) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("PDF와 YouTube로 만드는 나만의 연습", style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
+                        Text("${anchors.size}개 싱크 포인트", style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
+                    }
                 }
             }
         }
     }
 }
 
-// 스위치 비율 줄이기용 scale 확장 제어 (KMP layout utility)
-private fun Modifier.scale(scale: Float): Modifier = this.then(
-    // WasmJs 및 멀티플랫폼 호환 컴팩트 스케일링은 컴포즈 modifier에서 직접 처리하지 않고 크기 조절이나 여백으로 대응하는 것이 가장 깨끗하므로,
-    // 오버헤드를 막기 위해 여기서는 modifier 자체를 그대로 리턴
-    this
-)
+@Composable
+private fun PaneHeading(text: String) {
+    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { heading() })
+}
+
+@Composable
+private fun StudioButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, primary: Boolean = true) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(8.dp)
+    val buttonModifier = modifier.heightIn(min = 48.dp).then(
+        if (focused) Modifier.border(2.dp, PracticeColors.Ink, shape).padding(3.dp) else Modifier
+    )
+    if (primary) {
+        Button(onClick, modifier = buttonModifier, enabled = enabled, shape = shape,
+            interactionSource = interaction, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) { Text(text, maxLines = 1) }
+    } else {
+        OutlinedButton(onClick, modifier = buttonModifier, enabled = enabled, shape = shape,
+            interactionSource = interaction, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = PracticeColors.Ink)) { Text(text, maxLines = 1) }
+    }
+}
+
+@Composable
+private fun ModeButton(text: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    StudioButton(text, onClick, modifier.semantics { selected = active }, primary = active)
+}
+
+@Composable
+private fun WorkspaceTab(text: String, active: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    Column(modifier.semantics { selected = active }
+        .then(if (focused) Modifier.border(2.dp, PracticeColors.Ink) else Modifier)
+        .clickable(interactionSource = interaction, indication = null, role = Role.Tab, onClick = onClick)) {
+        Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
+            Text(text, style = MaterialTheme.typography.labelLarge, color = if (active) PracticeColors.Rust else PracticeColors.Muted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        HorizontalDivider(thickness = if (active) 2.dp else 1.dp, color = if (active) PracticeColors.Rust else PracticeColors.Divider)
+    }
+}
+
+@Composable
+private fun ScoreEmptyState(attach: Boolean, choosePdf: () -> Unit, modifier: Modifier) {
+    Column(modifier.verticalScroll(rememberScrollState()).padding(32.dp),
+        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text("PDF", style = MaterialTheme.typography.labelLarge, color = PracticeColors.Rust,
+            modifier = Modifier.border(1.dp, PracticeColors.Divider, RoundedCornerShape(8.dp)).padding(horizontal = 16.dp, vertical = 12.dp))
+        Spacer(Modifier.height(24.dp))
+        Text(if (attach) "악보를 연결해 주세요" else "악보를 펼쳐볼까요?", style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(12.dp))
+        Text(if (attach) "저장한 싱크는 준비됐어요.\n이 곡의 PDF를 선택하면 이어서 연습할 수 있어요."
+            else "PDF 악보를 선택하고\n영상에 맞춰 나만의 싱크를 기록하세요.", color = PracticeColors.Muted, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(24.dp))
+        StudioButton("악보 선택", choosePdf)
+        Spacer(Modifier.height(16.dp))
+        Text("PDF 파일은 서버에 업로드되지 않습니다.", style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted, textAlign = TextAlign.Center)
+    }
+}
+
+@Composable
+private fun SyncPointList(anchors: List<AnchorPoint>, editable: Boolean, remove: (AnchorPoint) -> Unit) {
+    if (anchors.isEmpty()) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 24.dp)) {
+            Text("아직 기록한 위치가 없어요.", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text("싱크 편집에서 첫 위치를 기록해 보세요.", color = PracticeColors.Muted)
+        }
+        return
+    }
+    LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
+        items(anchors) { anchor ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(practiceTime(anchor.timeSec), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text("${anchor.scrollPixel.toInt()} px", style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
+                if (editable) TextButton(onClick = { remove(anchor) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("삭제") }
+            }
+            HorizontalDivider(color = PracticeColors.Divider)
+        }
+    }
+}
+
+@Composable
+private fun SongLibrary(songs: List<SongData>, selectedId: Long?, loading: Boolean, error: Boolean, retry: () -> Unit, selectSong: (SongData) -> Unit) {
+    when {
+        loading -> Text("보관함을 불러오는 중...", modifier = Modifier.padding(vertical = 24.dp), color = PracticeColors.Muted)
+        error -> Column(Modifier.padding(vertical = 16.dp)) {
+            Text("보관함에 연결하지 못했어요.", color = PracticeColors.Muted)
+            TextButton(onClick = retry, modifier = Modifier.heightIn(min = 48.dp)) { Text("다시 시도") }
+        }
+        songs.isEmpty() -> Column(Modifier.padding(vertical = 24.dp)) {
+            Text("첫 연습을 저장해 보세요.", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Text("저장한 곡과 싱크가 여기에 모입니다.", color = PracticeColors.Muted)
+        }
+        else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp).padding(top = 8.dp)) {
+            items(songs, key = { it.id }) { song ->
+                val interaction = remember { MutableInteractionSource() }
+                val focused by interaction.collectIsFocusedAsState()
+                Column(Modifier.fillMaxWidth()
+                    .background(if (song.id == selectedId) PracticeColors.Desk else PracticeColors.Surface)
+                    .then(if (focused) Modifier.border(2.dp, PracticeColors.Ink) else Modifier)
+                    .semantics { selected = song.id == selectedId }
+                    .clickable(interactionSource = interaction, indication = null, role = Role.Button) { selectSong(song) }
+                    .padding(horizontal = 12.dp, vertical = 16.dp)) {
+                    Text(song.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = if (song.id == selectedId) PracticeColors.Rust else PracticeColors.Ink)
+                    Text("${song.artist ?: "아티스트 미상"} · 싱크 ${song.anchorPoints.size}개",
+                        style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+    }
+}
+
+internal fun practiceTime(seconds: Float): String {
+    val total = if (seconds.isFinite()) seconds.coerceAtLeast(0f).toInt() else 0
+    return "${(total / 60).toString().padStart(2, '0')}:${(total % 60).toString().padStart(2, '0')}"
+}
+
+internal fun youtubeVideoId(input: String): String? {
+    val value = input.trim()
+    if (Regex("[A-Za-z0-9_-]{11}").matches(value)) return value
+    return Regex("(?:https?://)?(?:www\\.|m\\.)?(?:youtube\\.com/(?:watch\\?(?:[^#\\s]*&)?v=|shorts/|embed/)|youtu\\.be/)([A-Za-z0-9_-]{11})(?:[?&#/][^\\s]*)?")
+        .matchEntire(value)?.groupValues?.get(1)
+}

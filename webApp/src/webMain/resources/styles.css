@@ -1,7 +1,60 @@
+:root {
+    color-scheme: light;
+    --background: #F4F2EC;
+    --surface: #FCFBF8;
+    --paper: #FFFFFF;
+    --ink: #242923;
+    --muted: #656B61;
+    --divider: #DDDCD3;
+    --accent: #A33F24;
+    --radius: 8px;
+}
+* { box-sizing: border-box; }
 html, body {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    overflow: hidden;
+    width: 100%; height: 100%; margin: 0; overflow: hidden;
+    background: var(--background); color: var(--ink);
+    font: 16px/1.7 system-ui, "Noto Sans KR", sans-serif;
+}
+#app-loading {
+    position: fixed; inset: 0; display: grid; place-content: center;
+    text-align: center; pointer-events: none;
+}
+#app-loading strong { font-size: 28px; letter-spacing: -1px; }
+#app-loading span { color: var(--accent); }
+#app-loading p { color: var(--muted); font-size: 14px; }
+#app-loading[hidden] { display: none; }
+.media-overlay {
+    position: fixed; z-index: 2; overflow: hidden;
+    border-radius: var(--radius); background: var(--surface); pointer-events: auto;
+}
+.media-overlay[hidden] { display: none; }
+#youtube-player-container { background: var(--ink); }
+#youtube-player-container iframe, #yt-player { width: 100%; height: 100%; border: 0; }
+#youtube-player-container .media-status { color: var(--paper); }
+#pdf-viewer-container { border: 1px solid var(--divider); }
+#pdf-pages {
+    width: 100%; height: 100%; padding: 24px; overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: var(--muted) var(--background); scrollbar-width: thin;
+    background: var(--background);
+}
+#pdf-pages canvas {
+    display: block; width: 100%; height: auto; margin: 0 auto 24px;
+    background: var(--paper); box-shadow: 0 2px 8px rgb(36 41 35 / 8%);
+}
+#pdf-pages canvas:last-child { margin-bottom: 0; }
+.media-status { margin: 0; padding: 24px; color: var(--muted); }
+.media-notice {
+    position: fixed; z-index: 3; bottom: 16px; left: 50%; transform: translateX(-50%);
+    width: max-content; max-width: calc(100% - 32px); padding: 12px 16px;
+    border: 1px solid var(--divider); border-radius: var(--radius);
+    background: var(--surface); color: var(--accent); pointer-events: none;
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+@media (max-width: 639px) {
+    #pdf-pages { padding: 12px; }
+    #pdf-pages canvas { margin-bottom: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
 }

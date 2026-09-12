@@ -1,13 +1,12 @@
 package com.woong.vibebass.components
 
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 
 @Composable
 actual fun PdfSheetViewer(
     pdfSource: String,
-    scrollState: LazyListState,
+    onScrollPositionChanged: (Float) -> Unit,
     onPdfFileSelected: (String, String) -> Unit,
     modifier: Modifier
 ) {
