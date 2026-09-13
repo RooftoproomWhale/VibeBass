@@ -2,6 +2,9 @@
     'use strict';
 
     const overlays = new Map();
+    // Keep the engine, worker, fonts and decoders on the same patched release.
+    const pdfJsBase = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/';
+    let pdfJsPromise = null;
     let player = null;
     let playerReady = false;
     let wantedVideoId = '';
@@ -10,7 +13,6 @@
     let pdfUrl = '';
     let pdfGeneration = 0;
     let pdfLoadingTask = null;
-    let pdfDocument = null;
     let pdfRenderTask = null;
     let searchController = null;
     let noticeTimer = null;
@@ -171,10 +173,9 @@
         searchController = null;
         pdfRenderTask?.cancel();
         pdfRenderTask = null;
-        const owner = pdfLoadingTask || pdfDocument;
+        const owner = pdfLoadingTask;
         if (owner) Promise.resolve(owner.destroy()).catch(() => {});
         pdfLoadingTask = null;
-        pdfDocument = null;
     }
 
     async function searchFromPage(page, generation) {
@@ -229,18 +230,25 @@
         if (!pdfUrl) return;
         status(pages, '악보를 불러오고 있어요.');
         try {
-            if (!window.pdfjsLib) throw new Error('PDF.js unavailable');
-            window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-            const task = window.pdfjsLib.getDocument({
+            pdfJsPromise ||= import(pdfJsBase + 'build/pdf.min.mjs').catch(error => {
+                pdfJsPromise = null;
+                throw error;
+            });
+            const pdfjs = await pdfJsPromise;
+            if (generation !== pdfGeneration) return;
+            pdfjs.GlobalWorkerOptions.workerSrc = pdfJsBase + 'build/pdf.worker.min.mjs';
+            const task = pdfjs.getDocument({
                 url: pdfUrl,
-                cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+                cMapUrl: pdfJsBase + 'cmaps/',
                 cMapPacked: true,
+                standardFontDataUrl: pdfJsBase + 'standard_fonts/',
+                wasmUrl: pdfJsBase + 'wasm/',
+                // Legacy defense in depth; v6 removes the vulnerable eval path itself.
                 isEvalSupported: false
             });
             pdfLoadingTask = task;
             const doc = await task.promise;
             if (generation !== pdfGeneration) return;
-            pdfDocument = doc;
             pages.replaceChildren();
             // ponytail: all pages stay resident; add page virtualization for large scores.
             for (let number = 1; number <= doc.numPages; number++) {

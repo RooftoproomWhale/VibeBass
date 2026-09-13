@@ -22,5 +22,5 @@ server:
 
 # YouTube Data API v3 연동 설정
 youtube:
-  api-key: ${YOUTUBE_API_KEY:AIzaSyCZbcPtGX_PS9poA0d4n9FCvBSwBrNAR1c}
+  api-key: ${YOUTUBE_API_KEY:}
   search-url: https://www.googleapis.com/youtube/v3/search

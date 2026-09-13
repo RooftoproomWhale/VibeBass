@@ -41,6 +41,24 @@ Kotlin Multiplatform (KMP) 기반의 차세대 악보 동기화 및 연습 보�
 ./gradlew :androidApp:assembleDebug
 ```
 
+### 3. YouTube 자동 검색용 서버 API 키
+
+현재 결정(2026-09-13): 서버 배포 전까지 `YOUTUBE_API_KEY`를 미설정하여 자동 검색을 비활성화합니다. 새 키 발급과 Docker 실행 환경 주입은 서버 배포 시 진행합니다. [배포 시 재개할 작업](PROJECT_BACKLOG.md#서버-배포-시-재개-youtube-자동-검색)에 기록했습니다. 아래 설정 절차는 자동 검색을 재개할 때 적용합니다.
+
+백엔드 실행 환경에 `YOUTUBE_API_KEY`를 설정합니다. 키가 없거나 공백이면 자동 검색 API는 외부 요청 없이 **503**을 반환합니다. PDF 열기와 YouTube 링크 직접 입력은 계속 사용할 수 있습니다. 외부 검색 오류는 상세 내용을 노출하지 않는 **502**로 처리합니다.
+
+IntelliJ의 백엔드 Run Configuration에서 환경변수를 지정하거나, PowerShell에서 아래처럼 입력한 후 **같은 셸에서** 백엔드를 실행하세요. 키를 소스, 공유 Run Configuration, 웹 리소스, 명령 기록에 저장하지 마세요. Spring Boot는 이 프로젝트의 `.env` 파일을 자동으로 읽지 않습니다.
+
+```powershell
+$youtubeKeyInput = Read-Host 'YouTube API key' -AsSecureString
+$env:YOUTUBE_API_KEY = [System.Net.NetworkCredential]::new('', $youtubeKeyInput).Password
+Remove-Variable youtubeKeyInput
+```
+
+기존 설정에 있던 키 형태의 값은 Git 이력에 남아 있습니다. **실제 발급된 키라면 Google Cloud Console에서 교체해야 합니다.** 새 키의 API 제한을 **YouTube Data API v3**로 설정하고, 운영 서버에 고정 송신 IP가 있다면 해당 IP만 허용하세요. 새 키를 서버 환경에 반영하고 검색을 확인한 뒤 기존 키를 삭제하세요. 사용하지 않는 키라면 바로 삭제하세요. 이번 소스 수정은 Google 계정의 키를 교체하거나 Git 이력을 삭제하지 않습니다. [Google API 키 관리 지침](https://docs.cloud.google.com/docs/authentication/api-keys-best-practices)
+
+서버는 키를 URL 쿼리 대신 `X-Goog-Api-Key` 헤더로 전송합니다. 운영 HTTP 디버그·프록시·APM 설정에서도 이 헤더를 기록하지 않도록 마스킹해야 합니다. [Google 시스템 파라미터](https://docs.cloud.google.com/apis/docs/system-parameters)
+
 ---
 
 ## 🧪 테스트 가이드 (Running Tests)
@@ -50,6 +68,16 @@ Kotlin Multiplatform (KMP) 기반의 차세대 악보 동기화 및 연습 보�
 # WasmJs 타겟 테스트 실행
 ./gradlew :shared:wasmJsTest
 ```
+
+빌드 없이 PDF·YouTube 브리지 회귀 검사를 실행할 수 있습니다. Node 기본 테스트 모듈만 사용하며, VM 모듈 옵션은 테스트에서 CDN 모듈을 가짜 PDF 엔진으로 대체하기 위한 설정입니다.
+
+```bash
+node --experimental-vm-modules --test webApp/src/webMain/tests/practice-media.test.cjs
+```
+
+백엔드의 `YoutubeSearchServiceTest`에는 키 누락, 헤더 전송, 검색어 인코딩, 외부 오류 정보 차단 검사가 포함됩니다. Gradle 테스트는 컴파일과 웹 패키징을 수반하므로 별도로 실행해야 합니다.
+
+PDF.js는 `practice-media.js`에서 **6.3.289**로 고정해 첫 PDF를 열 때 ES 모듈로 불러옵니다. 본체·worker·CMap·기본 글꼴·Wasm 디코더는 같은 버전의 jsDelivr 배포본을 사용합니다. 버전을 바꿀 때는 실제 PDF 렌더링과 브리지 검사를 함께 확인하세요. `isEvalSupported: false` 설정도 유지하지만, v6에서는 해당 eval 경로 자체가 제거되어 보안 조치의 근거는 패치된 엔진입니다. [Mozilla 보안 권고](https://github.com/mozilla/pdf.js/security/advisories/GHSA-wgrm-67xf-hhpq), [적용 릴리스](https://github.com/mozilla/pdf.js/releases/tag/v6.3.289)
 
 ---
 

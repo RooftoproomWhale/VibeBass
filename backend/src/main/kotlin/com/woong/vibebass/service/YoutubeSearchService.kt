@@ -3,10 +3,12 @@ package com.woong.vibebass.service
 import io.netty.channel.ChannelOption
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.http.HttpStatus
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
+import org.springframework.web.server.ResponseStatusException
 import org.springframework.web.util.UriComponentsBuilder
 import reactor.core.publisher.Mono
 import reactor.netty.http.client.HttpClient
@@ -40,31 +42,35 @@ class YoutubeSearchService {
     }
 
     fun searchVideo(query: String): String {
-        log.info("Requesting YouTube video search for query: '{}'", query)
+        val key = apiKey.trim()
+        if (key.isEmpty()) {
+            throw ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "자동 검색을 사용할 수 없습니다. YouTube 링크를 직접 입력해 주세요.")
+        }
 
         try {
             val targetUri = UriComponentsBuilder.fromHttpUrl(searchUrl)
                 .queryParam("part", "snippet")
-                .queryParam("q", query)
+                .queryParam("q", "{query}")
                 .queryParam("type", "video")
                 .queryParam("maxResults", "1")
-                .queryParam("key", apiKey)
-                .build()
+                .encode()
+                .buildAndExpand(query)
                 .toUri()
 
             return webClient.get()
                 .uri(targetUri)
+                .header("X-Goog-Api-Key", key)
                 .retrieve()
                 // 4xx (Client Error) 및 5xx (Server Error) 개별 예외 포착
                 .onStatus(HttpStatusCode::is4xxClientError) { clientResponse ->
                     log.error("YouTube API 4xx Client Error. Status code: {}", clientResponse.statusCode())
-                    clientResponse.bodyToMono(String::class.java)
-                        .flatMap { body -> Mono.error(IllegalArgumentException("유튜브 API 요청 오류 (Client Error): $body")) }
+                    clientResponse.releaseBody()
+                        .then(Mono.error(IllegalArgumentException("YouTube API client error")))
                 }
                 .onStatus(HttpStatusCode::is5xxServerError) { serverResponse ->
                     log.error("YouTube API 5xx Server Error. Status code: {}", serverResponse.statusCode())
-                    serverResponse.bodyToMono(String::class.java)
-                        .flatMap { body -> Mono.error(IllegalStateException("유튜브 검색 서버 장애 (Server Error): $body")) }
+                    serverResponse.releaseBody()
+                        .then(Mono.error(IllegalStateException("YouTube API server error")))
                 }
                 .bodyToMono(Map::class.java)
                 // 멱등원성 읽기 작업에 대한 지수 백오프 기반 재시도 (최대 3회)
@@ -78,8 +84,9 @@ class YoutubeSearchService {
                 .map { response -> extractVideoId(response as Map<String, Any>) }
                 .block() ?: throw IllegalStateException("유튜브 검색 결과 반환 실패")
         } catch (e: Exception) {
-            log.error("YouTube search execution failed for query '{}'. Error: {}", query, e.message, e)
-            throw IllegalStateException("유튜브 검색 중 예외가 발생했습니다. 원인: ${e.message}", e)
+            // Network exceptions can contain request headers/URIs. Never retain their message or cause.
+            log.warn("YouTube search failed. Exception type: {}", e.javaClass.simpleName)
+            throw ResponseStatusException(HttpStatus.BAD_GATEWAY, "자동 검색에 실패했습니다. YouTube 링크를 직접 입력해 주세요.")
         }
     }
 

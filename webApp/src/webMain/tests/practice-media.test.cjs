@@ -1,4 +1,4 @@
-// Run with: node --test webApp/src/webMain/tests/practice-media.test.cjs
+// Run with: node --experimental-vm-modules --test webApp/src/webMain/tests/practice-media.test.cjs
 // This exercises the real browser bridge with controlled DOM/PDF/network timing.
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,7 +15,7 @@ const deferred = () => {
 };
 const flush = () => new Promise(done => setImmediate(done));
 
-function browser() {
+function browser({ moduleReady = Promise.resolve() } = {}) {
     class Element {
         constructor(tagName) {
             this.tagName = tagName.toUpperCase();
@@ -66,6 +66,7 @@ function browser() {
     const body = new Element('body');
     const head = new Element('head');
     const documentRequests = new Map();
+    const imports = [];
     const searches = [];
     const intervals = new Map();
     let nextInterval = 0;
@@ -101,19 +102,33 @@ function browser() {
         },
         pdfjsLib: {
             GlobalWorkerOptions: {},
-            getDocument: ({ url }) => {
+            getDocument: options => {
                 const request = deferred();
-                const task = { ...request, destroy: async () => { task.destroyed = true; } };
-                documentRequests.set(url, task);
+                const task = { ...request, options, destroy: async () => { task.destroyed = true; } };
+                documentRequests.set(options.url, task);
                 return task;
             },
         },
     };
     context.window = context;
-    vm.runInNewContext(source, context, { filename: 'practice-media.js' });
+    const pdfModule = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions'], function () {
+        this.setExport('getDocument', context.pdfjsLib.getDocument);
+        this.setExport('GlobalWorkerOptions', context.pdfjsLib.GlobalWorkerOptions);
+    });
+    vm.runInNewContext(source, context, {
+        filename: 'practice-media.js',
+        importModuleDynamically: async specifier => {
+            imports.push(specifier);
+            await moduleReady;
+            if (pdfModule.status === 'unlinked') await pdfModule.link(() => {});
+            await pdfModule.evaluate();
+            return pdfModule;
+        },
+    });
     return {
         window: context,
         documents: documentRequests,
+        imports,
         searches,
         intervals,
         element: id => context.document.getElementById(id),
@@ -131,7 +146,7 @@ function page(label, title = '') {
         },
     };
 }
-const pdf = pages => ({ numPages: pages.length, getPage: number => Promise.resolve(pages[number - 1]), destroy: async () => {} });
+const pdf = pages => ({ numPages: pages.length, getPage: number => Promise.resolve(pages[number - 1]) });
 
 test('PDF keeps page order when later page data arrives first', async () => {
     const app = browser();
@@ -152,6 +167,7 @@ test('selecting another PDF invalidates old video results before the next viewer
     const videos = [];
     app.window.onYoutubeVideoIdFound = value => videos.push(value);
     const loaded = app.window.initPdfViewer('blob:previous');
+    await flush();
     app.documents.get('blob:previous').resolve(pdf([page('previous', 'Previous song')]));
     await loaded;
     await flush();
@@ -233,6 +249,8 @@ test('switching PDF rejects stale document loads, pages, and video results', asy
     await flush();
     const currentLoad = app.window.initPdfViewer('blob:current', false);
     await flush();
+    assert.equal(app.documents.get('blob:delayed').destroyed, true);
+    assert.equal(app.documents.get('blob:old').destroyed, true);
     app.documents.get('blob:current').resolve(pdf([page('current')]));
     await currentLoad;
     app.documents.get('blob:delayed').resolve(pdf([page('delayed')]));
@@ -290,4 +308,56 @@ test('PDF scroll uses raw coordinates and overlays use supplied CSS bounds at DP
     app.element('pdf-pages').scrollTop = 725;
     app.element('pdf-pages').dispatchEvent({ type: 'scroll' });
     assert.deepEqual(positions, [725]);
+});
+
+test('PDF engine and assets use one patched version and disable legacy eval', async () => {
+    const app = browser();
+    const loaded = app.window.initPdfViewer('blob:secure', false);
+    await flush();
+    const base = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/';
+    assert.deepEqual(app.imports, [base + 'build/pdf.min.mjs']);
+    assert.equal(app.window.pdfjsLib.GlobalWorkerOptions.workerSrc, base + 'build/pdf.worker.min.mjs');
+    const task = app.documents.get('blob:secure');
+    assert.equal(task.options.isEvalSupported, false);
+    assert.equal(task.options.cMapPacked, true);
+    assert.equal(task.options.cMapUrl, base + 'cmaps/');
+    assert.equal(task.options.standardFontDataUrl, base + 'standard_fonts/');
+    assert.equal(task.options.wasmUrl, base + 'wasm/');
+    task.resolve(pdf([page(1)]));
+    await loaded;
+});
+
+test('switching or clearing a PDF during module loading never opens the stale file', async () => {
+    const ready = deferred();
+    const app = browser({ moduleReady: ready.promise });
+    const old = app.window.initPdfViewer('blob:old', false);
+    const latest = app.window.initPdfViewer('blob:latest', false);
+    ready.resolve();
+    await flush();
+    assert.equal(app.imports.length, 1);
+    assert.deepEqual([...app.documents.keys()], ['blob:latest']);
+    app.documents.get('blob:latest').resolve(pdf([page('latest')]));
+    await Promise.all([old, latest]);
+    assert.deepEqual(app.canvases().map(canvas => canvas.pageLabel), ['latest']);
+
+    const pending = deferred();
+    const cleared = browser({ moduleReady: pending.promise });
+    const loading = cleared.window.initPdfViewer('blob:cleared', false);
+    await cleared.window.initPdfViewer('');
+    pending.resolve();
+    await loading;
+    assert.equal(cleared.documents.size, 0);
+});
+
+test('module loading failure shows an error and allows another import attempt', async () => {
+    const ready = deferred();
+    const app = browser({ moduleReady: ready.promise });
+    const loaded = app.window.initPdfViewer('blob:failed', false);
+    ready.reject(new Error('CDN unavailable'));
+    await loaded;
+    const message = app.element('pdf-pages').children[0];
+    assert.equal(message.getAttribute('role'), 'alert');
+    assert.equal(app.documents.size, 0);
+    await app.window.initPdfViewer('blob:failed', false);
+    assert.equal(app.imports.length, 2);
 });
