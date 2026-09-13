@@ -1,6 +1,9 @@
 spring:
   application:
     name: backend
+  jackson:
+    deserialization:
+      fail-on-null-for-primitives: true
   
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/vibebass}

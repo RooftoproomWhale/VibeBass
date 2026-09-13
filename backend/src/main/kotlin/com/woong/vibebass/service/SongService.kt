@@ -26,14 +26,14 @@ class SongService(private val songRepository: SongRepository) {
         val song = songRepository.findById(id)
             .orElseThrow {
                 log.error("Song not found with id: {}", id)
-                IllegalArgumentException("존재하지 않는 곡입니다. ID: $id")
+                SongNotFoundException()
             }
         return SongResponse.fromEntity(song)
     }
 
     @Transactional
     fun create(request: SongRequest): SongResponse {
-        log.info("Request to create song: {}", request.title)
+        log.info("Request to create song")
         val song = Song(
             title = request.title,
             artist = request.artist,
@@ -51,7 +51,7 @@ class SongService(private val songRepository: SongRepository) {
         val song = songRepository.findById(id)
             .orElseThrow {
                 log.error("Song update failed. Song not found with id: {}", id)
-                IllegalArgumentException("수정하려는 곡이 존재하지 않습니다. ID: $id")
+                SongNotFoundException()
             }
 
         song.title = request.title
@@ -68,7 +68,7 @@ class SongService(private val songRepository: SongRepository) {
         log.info("Request to delete song with id: {}", id)
         if (!songRepository.existsById(id)) {
             log.error("Song delete failed. Song not found with id: {}", id)
-            throw IllegalArgumentException("삭제하려는 곡이 존재하지 않습니다. ID: $id")
+            throw SongNotFoundException()
         }
         songRepository.deleteById(id)
         log.info("Song deleted successfully (soft delete) with id: {}", id)

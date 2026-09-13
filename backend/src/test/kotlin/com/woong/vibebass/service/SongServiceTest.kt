@@ -81,10 +81,9 @@ class SongServiceTest {
         whenever(songRepository.findById(99L)).thenReturn(Optional.empty())
 
         // When & Then (Edge case validation)
-        val exception = assertThrows<IllegalArgumentException> {
+        assertThrows<SongNotFoundException> {
             songService.findById(99L)
         }
-        assertTrue(exception.message!!.contains("존재하지 않는 곡입니다"))
         verify(songRepository).findById(99L)
     }
 
@@ -94,10 +93,17 @@ class SongServiceTest {
         whenever(songRepository.existsById(99L)).thenReturn(false)
 
         // When & Then
-        val exception = assertThrows<IllegalArgumentException> {
+        assertThrows<SongNotFoundException> {
             songService.delete(99L)
         }
-        assertTrue(exception.message!!.contains("삭제하려는 곡이 존재하지 않습니다"))
         verify(songRepository).existsById(99L)
+    }
+
+    @Test
+    fun `실패 - 없는 곡을 수정하면 곡 없음 예외를 반환한다`() {
+        whenever(songRepository.findById(99L)).thenReturn(Optional.empty())
+        assertThrows<SongNotFoundException> {
+            songService.update(99L, SongRequest("곡", null, "dQw4w9WgXcQ", emptyList()))
+        }
     }
 }

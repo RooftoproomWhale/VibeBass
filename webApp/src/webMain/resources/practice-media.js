@@ -259,17 +259,13 @@
             const artist = items.map(item => item.str).join(' ').match(/([가-힣a-zA-Z0-9]+)\s+(?:노래|작사|작곡)/)?.[1];
             const query = artist && artist !== title ? artist + ' ' + title : title;
             searchController = new AbortController();
-            const response = await fetch('http://localhost:8082/api/youtube/search?query=' + encodeURIComponent(query), {
-                signal: searchController.signal
-            });
-            if (!response.ok) throw new Error('Search unavailable');
-            const data = await response.json();
+            const data = await window.vibeBassApi.searchYoutube(query, searchController.signal);
             if (generation === pdfGeneration && !wantedVideoId && typeof data.videoId === 'string') {
                 window.onYoutubeVideoIdFound?.(data.videoId);
             }
         } catch (error) {
             if (generation === pdfGeneration && error.name !== 'AbortError' && !wantedVideoId) {
-                notice('자동으로 영상을 찾지 못했어요. YouTube 링크를 직접 입력해 주세요.');
+                notice(error.userMessage || '자동으로 영상을 찾지 못했어요. YouTube 링크를 직접 입력해 주세요.');
             }
         }
     }
@@ -308,6 +304,7 @@
                 url: pdfUrl,
                 cMapUrl: pdfJsBase + 'cmaps/',
                 cMapPacked: true,
+                iccUrl: pdfJsBase + 'iccs/',
                 standardFontDataUrl: pdfJsBase + 'standard_fonts/',
                 wasmUrl: pdfJsBase + 'wasm/',
                 // Legacy defense in depth; v6 removes the vulnerable eval path itself.

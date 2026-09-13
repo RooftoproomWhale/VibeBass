@@ -1,6 +1,8 @@
 package com.woong.vibebass.controller
 
 import com.woong.vibebass.service.YoutubeSearchService
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Size
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
@@ -10,7 +12,7 @@ import org.springframework.web.bind.annotation.*
 class YoutubeController(private val youtubeSearchService: YoutubeSearchService) {
 
     @GetMapping("/search")
-    fun searchYoutubeVideo(@RequestParam query: String): ResponseEntity<Map<String, String>> {
+    fun searchYoutubeVideo(@RequestParam("query") @NotBlank @Size(max = 500) query: String): ResponseEntity<Map<String, String>> {
         val videoId = youtubeSearchService.searchVideo(query)
         return ResponseEntity.ok(mapOf("videoId" to videoId))
     }

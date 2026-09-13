@@ -7,6 +7,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const source = fs.readFileSync(path.join(__dirname, '../resources/practice-media.js'), 'utf8');
+const apiSource = fs.readFileSync(path.join(__dirname, '../resources/practice-api.js'), 'utf8');
 const deferred = () => {
     let resolve;
     let reject;
@@ -109,8 +110,9 @@ function browser({ moduleReady = Promise.resolve(), roundScroll = false } = {}) 
         clearInterval: id => intervals.delete(id),
         requestAnimationFrame: callback => { callback(); return 1; },
         cancelAnimationFrame() {},
-        addEventListener() {},
-        removeEventListener() {},
+        events: {},
+        addEventListener(name, callback) { this.events[name] = callback; },
+        removeEventListener(name) { delete this.events[name]; },
         matchMedia: () => ({ matches: false }),
         fetch: (url, options) => {
             const response = deferred();
@@ -129,6 +131,7 @@ function browser({ moduleReady = Promise.resolve(), roundScroll = false } = {}) 
         },
     };
     context.window = context;
+    vm.runInNewContext(apiSource, context, { filename: 'practice-api.js' });
     const pdfModule = new vm.SyntheticModule(['getDocument', 'GlobalWorkerOptions'], function () {
         this.setExport('getDocument', context.pdfjsLib.getDocument);
         this.setExport('GlobalWorkerOptions', context.pdfjsLib.GlobalWorkerOptions);
@@ -198,7 +201,7 @@ test('selecting another PDF invalidates old video results before the next viewer
     let selected;
     app.window.onPdfFileSelected = (name, url) => {
         selected = { name, url };
-        app.searches[0].resolve({ ok: true, json: async () => ({ videoId: 'previous-video' }) });
+        app.searches[0].resolve({ ok: true, json: async () => ({ videoId: 'previous001' }) });
     };
     app.window.triggerPdfUpload();
     const input = app.window.document.body.querySelectorAll('input')[0];
@@ -290,12 +293,12 @@ test('switching PDF rejects stale document loads, pages, and video results', asy
     app.documents.get('blob:second-search').resolve(pdf([page('second-search', 'Second song')]));
     await flush();
     assert.equal(app.searches.length, 2);
-    app.searches[1].resolve({ ok: true, json: async () => ({ videoId: 'latest-video' }) });
+    app.searches[1].resolve({ ok: true, json: async () => ({ videoId: 'latest00001' }) });
     await flush();
-    app.searches[0].resolve({ ok: true, json: async () => ({ videoId: 'stale-video' }) });
+    app.searches[0].resolve({ ok: true, json: async () => ({ videoId: 'stale000001' }) });
     await Promise.all([firstSearch, secondSearch]);
     await flush();
-    assert.deepEqual(videos, ['latest-video']);
+    assert.deepEqual(videos, ['latest00001']);
     assert.deepEqual(app.canvases().map(canvas => canvas.pageLabel), ['second-search']);
 });
 
@@ -344,6 +347,7 @@ test('PDF engine and assets use one patched version and disable legacy eval', as
     assert.equal(task.options.isEvalSupported, false);
     assert.equal(task.options.cMapPacked, true);
     assert.equal(task.options.cMapUrl, base + 'cmaps/');
+    assert.equal(task.options.iccUrl, base + 'iccs/');
     assert.equal(task.options.standardFontDataUrl, base + 'standard_fonts/');
     assert.equal(task.options.wasmUrl, base + 'wasm/');
     task.resolve(pdf([page(1)]));
@@ -441,17 +445,34 @@ test('saved song bridge carries new page coordinates and accepts legacy pixel-on
     const js = bridge.slice(bridge.indexOf('private fun loadSongsJs(')).match(/js\("""([\s\S]*?)"""\)/)[1];
     const rows = [];
     const complete = deferred();
-    vm.runInNewContext(js, {
-        fetch: async () => ({ ok: true, json: async () => [{
+    const context = {
+        fetch: async url => { assert.equal(url, '/api/songs'); return { ok: true, json: async () => [{
             id: 1, title: 'Score', artist: null, youtubeVideoId: 'video',
             anchorPoints: [{ timeSec: 0, scrollPixel: 0 }, { timeSec: 10, scrollPixel: 1024, pagePosition: 1.25 }]
-        }] }),
+        }] }; },
         onSongItem: (...row) => rows.push(row),
         onComplete: complete.resolve,
         onFailure: complete.reject
-    });
+    };
+    context.window = context;
+    vm.runInNewContext(apiSource, context);
+    vm.runInNewContext(js, context);
     await complete.promise;
     assert.equal(rows[0][4], '0:0:,10:1024:1.25');
+});
+
+test('automatic search stays on the web origin and explains missing-key status', async () => {
+    const app = browser();
+    const loaded = app.window.initPdfViewer('blob:disabled-search');
+    await flush();
+    app.documents.get('blob:disabled-search').resolve(pdf([page(1, '한글 & 제목')]));
+    await loaded;
+    await flush();
+    assert.equal(app.searches[0].url, '/api/youtube/search?query=' + encodeURIComponent('한글 & 제목'));
+    app.searches[0].resolve({ ok: false, status: 503 });
+    await flush();
+    assert.match(app.element('media-notice').textContent, /비활성화/);
+    app.window.events.pagehide({ persisted: false });
 });
 
 test('Space in the PDF records the current position once and leaves other shortcuts alone', async () => {
