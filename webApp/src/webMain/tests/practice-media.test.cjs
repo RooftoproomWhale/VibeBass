@@ -15,7 +15,7 @@ const deferred = () => {
 };
 const flush = () => new Promise(done => setImmediate(done));
 
-function browser({ moduleReady = Promise.resolve() } = {}) {
+function browser({ moduleReady = Promise.resolve(), roundScroll = false } = {}) {
     class Element {
         constructor(tagName) {
             this.tagName = tagName.toUpperCase();
@@ -54,7 +54,18 @@ function browser({ moduleReady = Promise.resolve() } = {}) {
         dispatchEvent(event) { return this.listeners[event.type]?.(event); }
         click() {}
         getContext() { return { canvas: this }; }
-        scrollTo(options) { this.lastScroll = options; this.scrollTop = options.top; }
+        get offsetHeight() {
+            return this.tagName === 'CANVAS' && this.width
+                ? Math.max(0, this.parentNode.clientWidth - 2 * (this.parentNode.padding || 0)) * this.height / this.width
+                : this.clientHeight;
+        }
+        get offsetTop() {
+            if (this.tagName !== 'CANVAS') return 0;
+            const siblings = this.parentNode.children.filter(child => child.tagName === 'CANVAS');
+            return (this.parentNode.padding || 0) + siblings.slice(0, siblings.indexOf(this))
+                .reduce((top, child) => top + child.offsetHeight + (this.parentNode.gap || 0), 0);
+        }
+        scrollTo(options) { this.lastScroll = options; this.scrollTop = roundScroll ? Math.round(options.top) : options.top; }
         getBoundingClientRect() { return { left: 0, top: 0, width: this.clientWidth, height: this.clientHeight }; }
         querySelectorAll(selector) { return descendants(this).filter(node => node.tagName === selector.toUpperCase()); }
         set textContent(value) { this.replaceChildren(); this.text = String(value); }
@@ -69,6 +80,7 @@ function browser({ moduleReady = Promise.resolve() } = {}) {
     const imports = [];
     const searches = [];
     const intervals = new Map();
+    const resizeCallbacks = [];
     let nextInterval = 0;
     const context = {
         console,
@@ -87,6 +99,12 @@ function browser({ moduleReady = Promise.resolve() } = {}) {
         },
         setTimeout,
         clearTimeout,
+        getComputedStyle: element => ({ paddingTop: String(element.padding || 0) }),
+        ResizeObserver: class {
+            constructor(callback) { resizeCallbacks.push(callback); }
+            observe() {}
+            disconnect() {}
+        },
         setInterval: callback => { const id = ++nextInterval; intervals.set(id, callback); return id; },
         clearInterval: id => intervals.delete(id),
         requestAnimationFrame: callback => { callback(); return 1; },
@@ -133,6 +151,11 @@ function browser({ moduleReady = Promise.resolve() } = {}) {
         intervals,
         element: id => context.document.getElementById(id),
         canvases: () => context.document.getElementById('pdf-pages')?.querySelectorAll('canvas') ?? [],
+        layoutPdf: ({ width, height = 160, padding = 0, gap = 0 }) => {
+            const pages = context.document.getElementById('pdf-pages');
+            Object.assign(pages, { clientWidth: width, clientHeight: height, padding, gap });
+            resizeCallbacks.forEach(callback => callback());
+        },
     };
 }
 
@@ -360,4 +383,98 @@ test('module loading failure shows an error and allows another import attempt', 
     assert.equal(app.documents.size, 0);
     await app.window.initPdfViewer('blob:failed', false);
     assert.equal(app.imports.length, 2);
+});
+
+test('recorded page position survives resize, hidden panes and playback at another width', async () => {
+    const app = browser({ roundScroll: true });
+    const loaded = app.window.initPdfViewer('blob:responsive', false);
+    app.layoutPdf({ width: 648, padding: 24, gap: 24 });
+    await flush();
+    app.documents.get('blob:responsive').resolve(pdf([page(1), page(2)]));
+    await loaded;
+    let recorded;
+    app.window.onPdfScroll = (pixel, pagePosition) => { recorded = { pixel, pagePosition }; };
+    const pages = app.element('pdf-pages');
+    pages.scrollTop = 1024; // Second page, 25% from its top at the viewer's content inset.
+    pages.dispatchEvent({ type: 'scroll' });
+    assert.deepEqual(recorded, { pixel: 1024, pagePosition: 1.25 });
+    app.layoutPdf({ width: 324, padding: 12, gap: 12 });
+    assert.equal(pages.scrollTop, 512);
+    app.layoutPdf({ width: 0, height: 0 });
+    app.layoutPdf({ width: 648, padding: 24, gap: 24 });
+    assert.equal(pages.scrollTop, 1024);
+    for (let count = 0; count < 5; count++) {
+        app.layoutPdf({ width: 325, padding: 12, gap: 12 });
+        app.layoutPdf({ width: 648, padding: 24, gap: 24 });
+    }
+    assert.equal(pages.scrollTop, 1024, 'Rounding must not accumulate across repeated resizes');
+    app.window.scrollToPdfPixel(recorded.pixel, recorded.pagePosition);
+    app.layoutPdf({ width: 324, padding: 12, gap: 12 });
+    assert.equal(pages.scrollTop, 512);
+});
+
+test('paused playback target waits for its page and can be replaced or cancelled', async () => {
+    const app = browser();
+    const second = deferred();
+    const loaded = app.window.initPdfViewer('blob:pending-position', false);
+    app.layoutPdf({ width: 648, padding: 24, gap: 24 });
+    app.window.scrollToPdfPixel(1024, 1.25);
+    await flush();
+    app.documents.get('blob:pending-position').resolve(pdf([page(1), second.promise]));
+    await flush();
+    assert.equal(app.canvases().length, 1);
+    assert.equal(app.element('pdf-pages').scrollTop, 0, 'Do not apply a target to an incomplete page stack');
+    app.window.scrollToPdfPixel(1224, 1.5); // Edited anchors while the video remains paused.
+    second.resolve(page(2));
+    await loaded;
+    assert.equal(app.element('pdf-pages').scrollTop, 1224);
+    app.window.scrollToPdfPixel(null); // Sync edit mode / auto-follow off.
+    app.element('pdf-pages').scrollTop = 200;
+    app.element('pdf-pages').dispatchEvent({ type: 'scroll' });
+    app.layoutPdf({ width: 324, padding: 12, gap: 12 });
+    assert.equal(app.element('pdf-pages').scrollTop, 100);
+});
+
+test('saved song bridge carries new page coordinates and accepts legacy pixel-only data', async () => {
+    const bridge = fs.readFileSync(path.join(__dirname,
+        '../../../../shared/src/wasmJsMain/kotlin/com/woong/vibebass/sync/SyncDataManager.wasmJs.kt'), 'utf8');
+    const js = bridge.slice(bridge.indexOf('private fun loadSongsJs(')).match(/js\("""([\s\S]*?)"""\)/)[1];
+    const rows = [];
+    const complete = deferred();
+    vm.runInNewContext(js, {
+        fetch: async () => ({ ok: true, json: async () => [{
+            id: 1, title: 'Score', artist: null, youtubeVideoId: 'video',
+            anchorPoints: [{ timeSec: 0, scrollPixel: 0 }, { timeSec: 10, scrollPixel: 1024, pagePosition: 1.25 }]
+        }] }),
+        onSongItem: (...row) => rows.push(row),
+        onComplete: complete.resolve,
+        onFailure: complete.reject
+    });
+    await complete.promise;
+    assert.equal(rows[0][4], '0:0:,10:1024:1.25');
+});
+
+test('Space in the PDF records the current position once and leaves other shortcuts alone', async () => {
+    const app = browser();
+    const loaded = app.window.initPdfViewer('blob:keyboard', false);
+    app.layoutPdf({ width: 648, padding: 24, gap: 24 });
+    await flush();
+    app.documents.get('blob:keyboard').resolve(pdf([page(1), page(2)]));
+    await loaded;
+    const pages = app.element('pdf-pages');
+    let position;
+    const recorded = [];
+    app.window.onPdfScroll = (pixel, pagePosition) => { position = { pixel, pagePosition }; };
+    app.window.onPdfRecordShortcut = repeat => { if (!repeat) recorded.push(position); return true; };
+    pages.scrollTop = 1024; // The scroll event has not fired yet.
+    let prevented = 0;
+    const key = { type: 'keydown', code: 'Space', repeat: false, preventDefault: () => prevented++ };
+    pages.dispatchEvent(key);
+    pages.dispatchEvent({ ...key, repeat: true });
+    pages.dispatchEvent({ ...key, shiftKey: true });
+    assert.deepEqual(recorded, [{ pixel: 1024, pagePosition: 1.25 }]);
+    assert.equal(prevented, 2);
+    app.window.onPdfRecordShortcut = () => false; // Practice mode.
+    pages.dispatchEvent(key);
+    assert.equal(prevented, 2);
 });

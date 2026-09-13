@@ -2,8 +2,27 @@ package com.woong.vibebass.sync
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class SyncCalculatorTest {
+
+    @Test
+    fun pagePositionsInterpolateAndReflectEditedAnchorsAtTheSameTime() {
+        val anchors = listOf(AnchorPoint(0f, 0f, 0f), AnchorPoint(10f, 1024f, 1.25f))
+        assertEquals(0.625f, SyncCalculator.calculatePagePosition(5f, anchors))
+        assertEquals(1.25f, SyncCalculator.calculatePagePosition(10f, anchors))
+        assertEquals(1.25f, SyncCalculator.calculatePagePosition(20f, anchors))
+        assertEquals(0.75f, SyncCalculator.calculatePagePosition(5f, listOf(anchors.first(), anchors.last().copy(pagePosition = 1.5f))))
+        assertEquals(512f, SyncCalculator.calculateScrollPixel(5f, anchors))
+    }
+
+    @Test
+    fun legacyAndMixedAnchorsKeepPixelCoordinatesWithoutGuessingTheirPage() {
+        assertNull(SyncCalculator.calculatePagePosition(5f, emptyList()))
+        val anchors = listOf(AnchorPoint(0f, 0f), AnchorPoint(10f, 1000f, 1.25f))
+        assertNull(SyncCalculator.calculatePagePosition(5f, anchors))
+        assertEquals(500f, SyncCalculator.calculateScrollPixel(5f, anchors))
+    }
 
     @Test
     fun testCalculateScrollPixel_EmptyAnchors() {

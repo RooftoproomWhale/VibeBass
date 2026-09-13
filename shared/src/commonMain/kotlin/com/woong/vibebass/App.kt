@@ -50,6 +50,7 @@ fun App() {
         var fileName by remember { mutableStateOf("") }
         var currentTime by remember { mutableFloatStateOf(0f) }
         var scrollPosition by remember { mutableFloatStateOf(0f) }
+        var scrollPagePosition by remember { mutableStateOf<Float?>(null) }
         var isPlaying by remember { mutableStateOf(false) }
         var isSyncMode by remember { mutableStateOf(false) }
         var autoFollow by remember { mutableStateOf(true) }
@@ -84,9 +85,10 @@ fun App() {
         }
         fun recordAnchor() {
             if (pdfPath.isEmpty() || videoId.isEmpty() || !isSyncMode) return
+            val pagePosition = scrollPagePosition ?: return
             val time = (currentTime * 10).toInt() / 10f
             undoAnchors = anchors
-            anchors = (anchors.filterNot { it.timeSec == time } + AnchorPoint(time, scrollPosition)).sortedBy { it.timeSec }
+            anchors = (anchors.filterNot { it.timeSec == time } + AnchorPoint(time, scrollPosition, pagePosition)).sortedBy { it.timeSec }
             dirty = true
             status = "${practiceTime(time)} 위치를 기록했습니다."
         }
@@ -112,11 +114,10 @@ fun App() {
         }
 
         LaunchedEffect(Unit) { refreshSongs() }
-        LaunchedEffect(currentTime, isSyncMode, autoFollow, pdfPath, anchors) {
-            if (pdfPath.isNotEmpty() && !isSyncMode && autoFollow && anchors.isNotEmpty()) {
-                SyncDataManager.scrollToPdfPixel(SyncCalculator.calculateScrollPixel(currentTime, anchors).toDouble())
-            }
-        }
+        val scrollTarget = if (pdfPath.isNotEmpty() && !isSyncMode && autoFollow && anchors.isNotEmpty()) {
+            AnchorPoint(currentTime, SyncCalculator.calculateScrollPixel(currentTime, anchors),
+                SyncCalculator.calculatePagePosition(currentTime, anchors))
+        } else null
 
         BoxWithConstraints(Modifier.fillMaxSize().background(PracticeColors.Desk)) {
             val compact = maxWidth < 900.dp
@@ -197,6 +198,7 @@ fun App() {
                                     fileName = ""
                                     pdfPath = ""
                                     scrollPosition = 0f
+                                    scrollPagePosition = null
                                     attachingSavedScore = true
                                     dirty = false
                                     compactControls = false
@@ -208,7 +210,7 @@ fun App() {
                             Text(if (isSyncMode) "악보를 원하는 위치로 옮기고 기록하세요." else "저장한 위치에 맞춰 악보가 따라갑니다.", color = PracticeColors.Muted)
                             Spacer(Modifier.height(12.dp))
                             if (isSyncMode) {
-                                StudioButton("현재 위치 기록", ::recordAnchor, enabled = pdfPath.isNotEmpty() && videoId.isNotEmpty(), modifier = Modifier.fillMaxWidth())
+                                StudioButton("현재 위치 기록", ::recordAnchor, enabled = scrollPagePosition != null && videoId.isNotEmpty(), modifier = Modifier.fillMaxWidth())
                             } else {
                                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("자동 스크롤", style = MaterialTheme.typography.titleMedium)
@@ -217,6 +219,10 @@ fun App() {
                                 }
                             }
                             Spacer(Modifier.height(12.dp))
+                            if (anchors.any { it.pagePosition == null }) {
+                                Text("이전 방식의 싱크가 포함되어 있어요. 화면 크기를 유지하거나 위치를 다시 기록해 주세요.",
+                                    style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
+                            }
                             SyncPointList(anchors, isSyncMode) { anchor ->
                                 undoAnchors = anchors
                                 anchors = anchors.filterNot { it == anchor }
@@ -253,7 +259,9 @@ fun App() {
                     }
                     HorizontalDivider(color = PracticeColors.Divider)
                     Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                        PdfSheetViewer(pdfSource = pdfPath, onScrollPositionChanged = { scrollPosition = it },
+                        PdfSheetViewer(pdfSource = pdfPath, scrollTarget = scrollTarget,
+                            onRecordAnchor = if (isSyncMode && videoId.isNotEmpty() && scrollPagePosition != null) ::recordAnchor else null,
+                            onScrollPositionChanged = { pixel, page -> scrollPosition = pixel; scrollPagePosition = page },
                             onPdfFileSelected = { name, url ->
                                 if (!attachingSavedScore) {
                                     title = name.substringBeforeLast('.', name)
@@ -272,6 +280,7 @@ fun App() {
                                 fileName = name
                                 pdfPath = url
                                 scrollPosition = 0f
+                                scrollPagePosition = null
                                 compactControls = false
                                 status = ""
                             }, modifier = Modifier.fillMaxSize())
@@ -281,7 +290,7 @@ fun App() {
                         Row(Modifier.fillMaxWidth().background(PracticeColors.Surface).padding(12.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(practiceTime(currentTime), fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
-                            StudioButton("현재 위치 기록", ::recordAnchor, enabled = videoId.isNotEmpty())
+                            StudioButton("현재 위치 기록", ::recordAnchor, enabled = videoId.isNotEmpty() && scrollPagePosition != null)
                         }
                     }
                 }
@@ -421,7 +430,9 @@ private fun SyncPointList(anchors: List<AnchorPoint>, editable: Boolean, remove:
         items(anchors) { anchor ->
             Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(practiceTime(anchor.timeSec), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                Text("${anchor.scrollPixel.toInt()} px", style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
+                val position = anchor.pagePosition
+                Text(if (position != null) "${position.toInt() + 1}페이지 · ${((position % 1) * 100).toInt()}%" else "${anchor.scrollPixel.toInt()} px",
+                    style = MaterialTheme.typography.bodySmall, color = PracticeColors.Muted)
                 if (editable) TextButton(onClick = { remove(anchor) }, modifier = Modifier.heightIn(min = 48.dp)) { Text("삭제") }
             }
             HorizontalDivider(color = PracticeColors.Divider)

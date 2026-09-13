@@ -2,12 +2,15 @@ package com.woong.vibebass.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import com.woong.vibebass.sync.AnchorPoint
 
 @Composable
 actual fun PdfSheetViewer(
     pdfSource: String,
-    onScrollPositionChanged: (Float) -> Unit,
+    onScrollPositionChanged: (Float, Float?) -> Unit,
     onPdfFileSelected: (String, String) -> Unit,
+    scrollTarget: AnchorPoint?,
+    onRecordAnchor: (() -> Unit)?,
     modifier: Modifier
 ) {
     // Android 용 PDF 뷰어 뼈대

@@ -15,5 +15,4 @@ expect object SyncDataManager {
         onFailure: (String) -> Unit
     )
 
-    fun scrollToPdfPixel(pixel: Double)
 }

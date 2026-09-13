@@ -15,7 +15,7 @@ actual object SyncDataManager {
     ) {
         // 수작업으로 슬림하고 오차 없는 JSON 문자열 포맷팅 수행
         val anchorPointsJson = anchorPoints.joinToString(separator = ",", prefix = "[", postfix = "]") {
-            "{\"timeSec\": ${it.timeSec}, \"scrollPixel\": ${it.scrollPixel}}"
+            "{\"timeSec\": ${it.timeSec}, \"scrollPixel\": ${it.scrollPixel}, \"pagePosition\": ${it.pagePosition}}"
         }
         
         // JSON 문자열 이스케이프 및 구조 생성
@@ -53,7 +53,7 @@ actual object SyncDataManager {
                 } else {
                     anchorsStr.split(",").map { anchorStr ->
                         val parts = anchorStr.split(":")
-                        AnchorPoint(parts[0].toFloat(), parts[1].toFloat())
+                        AnchorPoint(parts[0].toFloat(), parts[1].toFloat(), parts.getOrNull(2)?.toFloatOrNull())
                     }
                 }
                 
@@ -74,10 +74,6 @@ actual object SyncDataManager {
         )
     }
 
-    @OptIn(ExperimentalWasmJsInterop::class)
-    actual fun scrollToPdfPixel(pixel: Double) {
-        scrollToPdfPixelJs(pixel)
-    }
 }
 
 // Kotlin/WasmJs 제약: js() 블록을 사용하는 함수는 반드시 클래스/Object 내부가 아닌 파일 최상단(Top-level) 함수로 선언해야 함
@@ -127,7 +123,7 @@ private fun loadSongsJs(
                 var anchorsStr = "";
                 if (song.anchorPoints && song.anchorPoints.length > 0) {
                     anchorsStr = song.anchorPoints.map(function(a) {
-                        return a.timeSec + ":" + a.scrollPixel;
+                        return a.timeSec + ":" + a.scrollPixel + ":" + (a.pagePosition == null ? "" : a.pagePosition);
                       }).join(",");
                 }
                 onSongItem(
@@ -144,9 +140,4 @@ private fun loadSongsJs(
             onFailure(err.message || '네트워크 로드 실패');
         });
     """)
-}
-
-@OptIn(ExperimentalWasmJsInterop::class)
-private fun scrollToPdfPixelJs(pixel: Double) {
-    js("window.scrollToPdfPixel(pixel)")
 }

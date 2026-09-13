@@ -5,31 +5,48 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
+import com.woong.vibebass.sync.AnchorPoint
 import kotlin.js.ExperimentalWasmJsInterop
+import kotlinx.coroutines.flow.collect
 
 @OptIn(ExperimentalWasmJsInterop::class)
 @Composable
 actual fun PdfSheetViewer(
     pdfSource: String,
-    onScrollPositionChanged: (Float) -> Unit,
+    onScrollPositionChanged: (Float, Float?) -> Unit,
     onPdfFileSelected: (String, String) -> Unit,
+    scrollTarget: AnchorPoint?,
+    onRecordAnchor: (() -> Unit)?,
     modifier: Modifier
 ) {
     val latestScroll = rememberUpdatedState(onScrollPositionChanged)
     val latestSelection = rememberUpdatedState(onPdfFileSelected)
+    val latestTarget = rememberUpdatedState(scrollTarget)
+    val latestRecord = rememberUpdatedState(onRecordAnchor)
     DisposableEffect(Unit) {
         bindPdfCallbacks(
-            onScroll = { latestScroll.value(it.toFloat()) },
-            onSelected = { name, url -> latestSelection.value(name, url) }
+            onScroll = { pixel, page -> latestScroll.value(pixel.toFloat(), page.takeIf { it >= 0 && it.isFinite() }?.toFloat()) },
+            onSelected = { name, url -> latestSelection.value(name, url) },
+            onRecord = { repeat ->
+                val record = latestRecord.value
+                if (record == null) false else { if (!repeat) record(); true }
+            }
         )
         onDispose { hidePdfViewerJs() }
     }
-    LaunchedEffect(pdfSource) { initPdfViewerJs(pdfSource) }
+    LaunchedEffect(pdfSource) {
+        // Reset the document before publishing its target; the bridge retains it during loading.
+        initPdfViewerJs(pdfSource)
+        snapshotFlow { latestTarget.value }.collect { target ->
+            setPdfScrollTargetJs(target?.scrollPixel?.toDouble() ?: -1.0, target?.pagePosition?.toDouble() ?: -1.0)
+        }
+    }
     Box(modifier = modifier.mediaOverlayBounds("pdf"))
 }
 
@@ -77,9 +94,15 @@ private fun hidePdfViewerJs() {
 }
 
 @OptIn(ExperimentalWasmJsInterop::class)
-private fun bindPdfCallbacks(onScroll: (Double) -> Unit, onSelected: (String, String) -> Unit) {
+private fun bindPdfCallbacks(onScroll: (Double, Double) -> Unit, onSelected: (String, String) -> Unit, onRecord: (Boolean) -> Boolean) {
     js("""
-        window.onPdfScroll = function(scrollTop) { onScroll(scrollTop); };
+        window.onPdfScroll = function(scrollTop, pagePosition) { onScroll(scrollTop, pagePosition == null ? -1 : pagePosition); };
         window.onPdfFileSelected = function(name, url) { onSelected(name, url); };
+        window.onPdfRecordShortcut = function(repeat) { return onRecord(repeat); };
     """)
+}
+
+@OptIn(ExperimentalWasmJsInterop::class)
+private fun setPdfScrollTargetJs(pixel: Double, pagePosition: Double) {
+    js("window.scrollToPdfPixel?.(pixel < 0 ? null : pixel, pagePosition < 0 ? null : pagePosition)")
 }

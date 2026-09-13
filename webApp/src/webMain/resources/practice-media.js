@@ -14,6 +14,13 @@
     let pdfGeneration = 0;
     let pdfLoadingTask = null;
     let pdfRenderTask = null;
+    let pdfScrollTarget = null;
+    let pdfPagePosition = 0;
+    let pdfPageCount = 0;
+    let pdfLayoutWidth = 0;
+    let pdfLayoutPadding = 0;
+    let pdfAppliedScrollTop = null;
+    let pdfResizeObserver = null;
     let searchController = null;
     let noticeTimer = null;
     const uploadUrls = new Set();
@@ -54,6 +61,7 @@
         state.bounds = [left, top, width, height, clipLeft, clipTop, clipRight, clipBottom];
         state.mounted = true;
         applyBounds(state);
+        if (id === 'pdf-viewer-container') restorePdfScroll();
         const loading = document.getElementById('app-loading');
         if (loading) loading.hidden = true;
     }
@@ -162,10 +170,64 @@
             pages.tabIndex = 0;
             pages.setAttribute('role', 'region');
             pages.setAttribute('aria-label', 'PDF 악보. 방향키로 스크롤할 수 있습니다.');
-            pages.addEventListener('scroll', () => window.onPdfScroll?.(pages.scrollTop), { passive: true });
+            pages.addEventListener('scroll', reportPdfScroll, { passive: true });
+            pages.addEventListener('keydown', event => {
+                if (event.code !== 'Space' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+                reportPdfScroll();
+                if (window.onPdfRecordShortcut?.(event.repeat)) event.preventDefault();
+            });
             state.element.appendChild(pages);
+            pdfResizeObserver = new ResizeObserver(restorePdfScroll);
+            pdfResizeObserver.observe(pages);
         }
         return pages;
+    }
+
+    function pdfGeometry() {
+        const pages = document.getElementById('pdf-pages');
+        if (!pages || pages.clientWidth <= 0 || pages.clientHeight <= 0) return null;
+        const canvases = Array.from(pages.querySelectorAll('canvas'));
+        if (!canvases.length || canvases.some(canvas => canvas.offsetHeight <= 0)) return null;
+        return { pages, canvases, padding: parseFloat(getComputedStyle(pages).paddingTop) || 0 };
+    }
+
+    function reportPdfScroll() {
+        const geometry = pdfGeometry();
+        if (!geometry) return;
+        const { pages, canvases, padding } = geometry;
+        // Resize can emit a scroll event before ResizeObserver restores the old document position.
+        if (pages.clientWidth !== pdfLayoutWidth || padding !== pdfLayoutPadding) return;
+        const y = pages.scrollTop + padding;
+        let index = canvases.findIndex(canvas => y < canvas.offsetTop + canvas.offsetHeight);
+        if (index < 0) index = canvases.length - 1;
+        const canvas = canvases[index];
+        const pagePosition = index + Math.max(0, Math.min(1, (y - canvas.offsetTop) / canvas.offsetHeight));
+        // Keep the canonical position across rounded CSS scroll offsets; avoid cumulative resize drift.
+        if (pages.scrollTop !== pdfAppliedScrollTop) { pdfPagePosition = pagePosition; pdfAppliedScrollTop = null; }
+        window.onPdfScroll?.(pages.scrollTop, pagePosition);
+    }
+
+    function restorePdfScroll() {
+        const geometry = pdfGeometry();
+        if (!geometry) return;
+        const { pages, canvases, padding } = geometry;
+        pdfLayoutWidth = pages.clientWidth;
+        pdfLayoutPadding = padding;
+        const target = pdfScrollTarget || { pagePosition: pdfPagePosition };
+        let pixel = target.pixel;
+        if (Number.isFinite(target.pagePosition)) {
+            const requestedPage = Math.floor(target.pagePosition);
+            // Keep the target while a later page is still loading, including paused playback.
+            if (requestedPage >= canvases.length && canvases.length < pdfPageCount) return;
+            const index = Math.min(requestedPage, canvases.length - 1);
+            const canvas = canvases[index];
+            const fraction = Math.min(1, target.pagePosition - index);
+            pixel = canvas.offsetTop + fraction * canvas.offsetHeight - padding;
+            pdfPagePosition = index + fraction;
+        }
+        if (Number.isFinite(pixel)) pages.scrollTo({ top: Math.max(0, pixel), behavior: 'auto' });
+        pdfAppliedScrollTop = Number.isFinite(target.pagePosition) ? pages.scrollTop : null;
+        reportPdfScroll();
     }
 
     function releasePdf() {
@@ -220,13 +282,18 @@
         pdfUrl = url || '';
         const generation = ++pdfGeneration;
         releasePdf();
+        pdfScrollTarget = null;
+        pdfPagePosition = 0;
+        pdfPageCount = 0;
+        pdfLayoutWidth = 0;
+        pdfAppliedScrollTop = null;
         for (const objectUrl of uploadUrls) {
             if (objectUrl !== pdfUrl) { URL.revokeObjectURL(objectUrl); uploadUrls.delete(objectUrl); }
         }
         const pages = pdfPages();
         pages.replaceChildren();
         pages.scrollTop = 0;
-        window.onPdfScroll?.(0);
+        window.onPdfScroll?.(0, null);
         if (!pdfUrl) return;
         status(pages, '악보를 불러오고 있어요.');
         try {
@@ -249,6 +316,7 @@
             pdfLoadingTask = task;
             const doc = await task.promise;
             if (generation !== pdfGeneration) return;
+            pdfPageCount = doc.numPages;
             pages.replaceChildren();
             // ponytail: all pages stay resident; add page virtualization for large scores.
             for (let number = 1; number <= doc.numPages; number++) {
@@ -262,6 +330,7 @@
                 canvas.setAttribute('role', 'img');
                 canvas.setAttribute('aria-label', '악보 ' + number + ' / ' + doc.numPages + '페이지');
                 pages.appendChild(canvas);
+                restorePdfScroll();
                 const render = page.render({ canvasContext: canvas.getContext('2d'), viewport });
                 pdfRenderTask = render;
                 await render.promise;
@@ -277,9 +346,14 @@
         }
     };
 
-    window.scrollToPdfPixel = function (pixel) {
-        const pages = document.getElementById('pdf-pages');
-        if (pages && Number.isFinite(pixel)) pages.scrollTo({ top: Math.max(0, pixel), behavior: 'auto' });
+    window.scrollToPdfPixel = function (pixel, pagePosition = null) {
+        if (pixel === null) { pdfScrollTarget = null; reportPdfScroll(); return; }
+        if (!Number.isFinite(pixel)) return;
+        pdfScrollTarget = {
+            pixel: Math.max(0, pixel),
+            pagePosition: Number.isFinite(pagePosition) && pagePosition >= 0 ? pagePosition : null
+        };
+        restorePdfScroll();
     };
 
     window.triggerPdfUpload = function () {
@@ -317,11 +391,12 @@
     window.adjustOverlayLayers = function () {
         overlays.forEach(applyBounds);
     };
-    window.addEventListener('resize', () => overlays.forEach(applyBounds));
+    window.addEventListener('resize', () => { overlays.forEach(applyBounds); restorePdfScroll(); });
     window.addEventListener('pagehide', event => {
         if (event.persisted) return;
         ++pdfGeneration;
         releasePdf();
+        pdfResizeObserver?.disconnect();
         clearInterval(youtubeTimer);
         clearTimeout(noticeTimer);
         player?.destroy();

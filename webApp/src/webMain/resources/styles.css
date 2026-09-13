@@ -33,6 +33,7 @@ html, body {
 #youtube-player-container .media-status { color: var(--paper); }
 #pdf-viewer-container { border: 1px solid var(--divider); }
 #pdf-pages {
+    position: relative; overflow-anchor: none;
     width: 100%; height: 100%; padding: 24px; overflow: auto;
     overscroll-behavior: contain;
     scrollbar-color: var(--muted) var(--background); scrollbar-width: thin;
@@ -43,6 +44,8 @@ html, body {
     background: var(--paper); box-shadow: 0 2px 8px rgb(36 41 35 / 8%);
 }
 #pdf-pages canvas:last-child { margin-bottom: 0; }
+/* Allow the final page position to reach the same reading inset in a tall viewport. */
+#pdf-pages:has(canvas)::after { content: ''; display: block; height: 100%; }
 .media-status { margin: 0; padding: 24px; color: var(--muted); }
 .media-notice {
     position: fixed; z-index: 3; bottom: 16px; left: 50%; transform: translateX(-50%);

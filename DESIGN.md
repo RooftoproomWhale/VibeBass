@@ -53,7 +53,7 @@ Flat controls; score shadow only. Compose is the base layer; browser media overl
 - DO preserve the existing Compose/KMP stack. DON'T install a UI framework for this redesign.
 - DO use one Rust accent. DON'T reintroduce neon gradients or fake album art.
 - DO expose useful empty, loading, retry and save states. DON'T claim a file is loaded when only sync metadata exists.
-- DO keep raw PDF scroll coordinates consistent. DON'T subtract a fixed guide-line offset in playback.
+- DO record new sync points by page-relative position and calculate playback pixels from the current layout. Preserve legacy pixel-only points and use the same reading inset for capture and playback.
 - DO use real media and stable page order. DON'T let a previous PDF request populate a new session.
 
 ## 8. Responsive Behavior
