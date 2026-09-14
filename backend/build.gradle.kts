@@ -46,19 +46,22 @@ dependencies {
 
 // KotlinCompile 태스크는 jvm 호환 17로 기본 매핑되므로 별도 옵션 제거
 
-val copyWebDist = tasks.register<Copy>("copyWebDist") {
-    // webApp의 배포판 빌드가 완료된 이후 수행하도록 순서 정의
+val copyWebDist = tasks.register<Sync>("copyWebDist") {
     dependsOn(":webApp:wasmJsBrowserDistribution")
-    
-    // webApp 빌드 dist 폴더로부터 파일 긁어오기
     from(project(":webApp").layout.buildDirectory.dir("dist/wasmJs/productionExecutable"))
-    // 정적 자원으로 패키징하기 위해 backend 리소스 static 폴더로 복사
-    into(layout.projectDirectory.dir("src/main/resources/static"))
+    into(layout.buildDirectory.dir("generated-resources/web"))
 }
 
-// Gradle 9.x 빌드 검증 호환: processResources 태스크가 copyWebDist에 의존하도록 명시
+// Ignore legacy web output left by older checkouts; backend tests need no web compilation.
 tasks.processResources {
-    dependsOn(copyWebDist)
+    exclude("static/**")
+}
+
+// Only the deployable archive includes the web distribution and its task dependencies.
+tasks.bootJar {
+    from(copyWebDist) {
+        into("BOOT-INF/classes/static")
+    }
 }
 
 tasks.withType<Test> {

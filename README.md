@@ -87,11 +87,21 @@ node webApp/src/webMain/tests/pdf-browser-check.cjs
 node --experimental-vm-modules --test webApp/src/webMain/tests/practice-media.test.cjs webApp/src/webMain/tests/practice-api.test.cjs
 ```
 
-백엔드의 `YoutubeSearchServiceTest`에는 키 누락, 헤더 전송, 검색어 인코딩, 외부 오류 정보 차단 검사가 포함됩니다. Gradle 테스트는 컴파일과 웹 패키징을 수반하므로 별도로 실행해야 합니다.
+백엔드의 `YoutubeSearchServiceTest`에는 키 누락, 헤더 전송, 검색어 인코딩, 외부 오류 정보 차단 검사가 포함됩니다. `:backend:test`가 웹 배포 빌드에 의존하지 않도록 구성했습니다. Kotlin 컴파일은 필요하므로 빌드가 허용된 환경에서 실행합니다.
 
 `ApiContractTest`는 MockMvc로 특수문자 왕복, 입력 오류 400, 없는 곡의 조회·수정·삭제 404, 검색 장애 502 및 키 누락 503의 응답 계약을 검사합니다. 2026-09-13 작업에서는 Node 검사 17개와 사용자 PDF 9개·38페이지의 데스크톱/모바일 브리지 검사를 통과했습니다. 백엔드 테스트, webpack 개발 프록시 실제 기동과 전체 Compose 실행은 빌드 제한에 따라 미실행입니다.
 
 PDF.js는 `practice-media.js`에서 **6.3.289**로 고정해 첫 PDF를 열 때 ES 모듈로 불러옵니다. 본체·worker·CMap·ICC 색상 프로파일·기본 글꼴·Wasm 디코더는 같은 버전의 jsDelivr 배포본을 사용합니다. 버전을 바꿀 때는 실제 PDF 렌더링과 브리지 검사를 함께 확인하세요. `isEvalSupported: false` 설정도 유지하지만, v6에서는 해당 eval 경로 자체가 제거되어 보안 조치의 근거는 패치된 엔진입니다. [Mozilla 보안 권고](https://github.com/mozilla/pdf.js/security/advisories/GHSA-wgrm-67xf-hhpq), [적용 릴리스](https://github.com/mozilla/pdf.js/releases/tag/v6.3.289)
+
+## 서버 패키징
+
+웹 원본은 `webApp/src/webMain/resources`에서 관리합니다. `copyWebDist`는 웹 배포 결과를 `backend/build/generated-resources/web`로 동기화하고, `:backend:bootJar`만 이를 `BOOT-INF/classes/static`에 포함합니다. `processResources`는 과거의 `src/main/resources/static` 생성물을 제외합니다. 저장소에 남아 있던 복사본 9개도 제거했습니다.
+
+| 명령 | 용도 |
+|---|---|
+| `./gradlew :backend:test` | 서버 테스트, 웹 배포 태스크 의존성 없음 |
+| `./gradlew :backend:bootRun` | API 개발 서버, 웹은 별도 개발 서버에서 실행 |
+| `./gradlew :backend:bootJar` | 웹을 포함한 배포 JAR 생성 |
 
 ## API 입력과 오류 계약
 
