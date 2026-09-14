@@ -105,6 +105,10 @@ PDF.js는 `practice-media.js`에서 **6.3.289**로 고정해 첫 PDF를 열 때 
 
 DB는 Flyway가 변경하고 Hibernate는 `validate`로 검사합니다. **기존 테이블이 있고 Flyway 이력이 없는 DB는 기준선 등록 전까지 서버 시작이 실패합니다.** [기존 DB 대조·백업·baseline 및 재실행 검사](backend/DATABASE.md)를 먼저 확인하세요. 빈 DB는 V1 → V2로 초기화합니다.
 
+Gradle 배포본은 현재 선택된 9.3.1을 유지하고 공식 `-bin.zip` SHA-256을 설정했습니다. 저장소의 Wrapper JAR도 공식 9.1.0 JAR 체크섬과 일치함을 확인했습니다. 배포본 선택과 Wrapper JAR 버전은 별개이며 이번에 JAR을 교체하거나 Wrapper를 실행하지 않았습니다. [Gradle 공식 체크섬](https://gradle.org/release-checksums/)
+
+2026-09-15에는 설정·생성물 제거·체크섬을 정적으로 확인했습니다. DBHub 연결 불가와 Docker 엔진 미실행으로 SQL 검사는 실행하지 않았고, 프로젝트 빌드 제한에 따라 Gradle 태스크 실행·JAR 내용·Spring/Flyway 통합 검증도 미실행입니다.
+
 ## API 입력과 오류 계약
 
 곡 저장/수정 시 제목은 공백이 아닌 255자 이하, 가수명은 선택값으로 255자 이하, 영상 ID는 영문·숫자·`_`·`-`로 이루어진 11자리입니다. 제목·가수명의 NUL 문자는 차단합니다. 앵커는 최대 10,000개이며 같은 시각은 중복할 수 없습니다. 시각·픽셀·선택적 페이지 좌표는 0 이상이고 Kotlin `Float` 범위에 들어오는 유한한 숫자여야 합니다. 기존 앵커의 `pagePosition: null`은 허용하지만, 필수 숫자의 `null`과 리스트 내부 `null`은 거부합니다. 검색어는 공백이 아닌 500자 이하입니다.
