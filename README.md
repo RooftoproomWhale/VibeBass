@@ -10,8 +10,8 @@ Kotlin Multiplatform (KMP) 기반의 차세대 악보 동기화 및 연습 보�
     *   *목표 플랫폼*: Web (WasmJs) 1단계 프로토타입 ➡️ Android & iOS 네이티브 확장
     *   *핵심 기능*: YouTube IFrame API 연동, 로컬 PDF 악보 렌더링, 선형 보간법(Linear Interpolation) 스무스 스크롤, Spacebar 이벤트 기반 싱크 매니저(Sync Manager)
 *   **Backend**: Kotlin **Spring Boot 3.x**
-*   **Database**: **PostgreSQL** (JSONB 형식을 통한 싱크 데이터 모델링)
-    *   *싱크 데이터 규격*: `[{"time_sec": 0, "scroll_pixel": 0}, {"time_sec": 15, "scroll_pixel": 400}]`
+*   **Database**: **PostgreSQL** (JSONB 형식을 통한 싱크 데이터 모델링, Flyway 마이그레이션)
+    *   *싱크 데이터 규격*: `[{"timeSec": 0, "scrollPixel": 0}, {"timeSec": 15, "scrollPixel": 400, "pagePosition": 1.25}]`
 
 ---
 
@@ -93,7 +93,7 @@ node --experimental-vm-modules --test webApp/src/webMain/tests/practice-media.te
 
 PDF.js는 `practice-media.js`에서 **6.3.289**로 고정해 첫 PDF를 열 때 ES 모듈로 불러옵니다. 본체·worker·CMap·ICC 색상 프로파일·기본 글꼴·Wasm 디코더는 같은 버전의 jsDelivr 배포본을 사용합니다. 버전을 바꿀 때는 실제 PDF 렌더링과 브리지 검사를 함께 확인하세요. `isEvalSupported: false` 설정도 유지하지만, v6에서는 해당 eval 경로 자체가 제거되어 보안 조치의 근거는 패치된 엔진입니다. [Mozilla 보안 권고](https://github.com/mozilla/pdf.js/security/advisories/GHSA-wgrm-67xf-hhpq), [적용 릴리스](https://github.com/mozilla/pdf.js/releases/tag/v6.3.289)
 
-## 서버 패키징
+## 서버 패키징과 DB 초기화
 
 웹 원본은 `webApp/src/webMain/resources`에서 관리합니다. `copyWebDist`는 웹 배포 결과를 `backend/build/generated-resources/web`로 동기화하고, `:backend:bootJar`만 이를 `BOOT-INF/classes/static`에 포함합니다. `processResources`는 과거의 `src/main/resources/static` 생성물을 제외합니다. 저장소에 남아 있던 복사본 9개도 제거했습니다.
 
@@ -102,6 +102,8 @@ PDF.js는 `practice-media.js`에서 **6.3.289**로 고정해 첫 PDF를 열 때 
 | `./gradlew :backend:test` | 서버 테스트, 웹 배포 태스크 의존성 없음 |
 | `./gradlew :backend:bootRun` | API 개발 서버, 웹은 별도 개발 서버에서 실행 |
 | `./gradlew :backend:bootJar` | 웹을 포함한 배포 JAR 생성 |
+
+DB는 Flyway가 변경하고 Hibernate는 `validate`로 검사합니다. **기존 테이블이 있고 Flyway 이력이 없는 DB는 기준선 등록 전까지 서버 시작이 실패합니다.** [기존 DB 대조·백업·baseline 및 재실행 검사](backend/DATABASE.md)를 먼저 확인하세요. 빈 DB는 V1 → V2로 초기화합니다.
 
 ## API 입력과 오류 계약
 
